@@ -1,0 +1,360 @@
+# Example lia configuration.
+#
+# Copy to ~/.config/lia/config.toml and edit. API keys are NOT set here —
+# they come from the environment (OPENAI_API_KEY, ANTHROPIC_API_KEY or
+# OLLAMA_API_KEY).
+#
+# Note the order: the plain settings come first, and the sections follow.
+# In TOML a key written after a section header belongs to that section, so
+# a setting that belongs to the top level has to come before any header.
+
+# Which provider to use:
+#   "openai"        — any OpenAI-compatible endpoint
+#   "anthropic"     — the Anthropic Messages API
+#   "ollama"        — an Ollama server, on this machine or elsewhere
+#   "ollama-cloud"  — Ollama's cloud (needs OLLAMA_API_KEY)
+provider = "openai"
+
+# The model id to request. Leave it out and the provider's own default is
+# used, which is the one that makes sense for it.
+model = "gpt-4o-mini"
+
+# Override the provider's API root. Leave unset for the default.
+# base_url = "https://api.openai.com/v1"
+# base_url = "http://localhost:1234/v1"    # LM Studio
+#
+# Ollama has its own address: a local server at http://localhost:11434,
+# and the cloud at https://ollama.com. The path people are used to typing
+# is understood too, so "https://ollama.com/v1" works as well.
+
+# Other models to try when the one above cannot answer. They are asked in
+# order, and only when the one before could not: a rate limit, a network
+# failure, a server in trouble, or a model that is not there any more. A
+# request the provider refused is not tried again elsewhere.
+#
+# [[fallback]]
+# provider = "anthropic"
+# model = "claude-sonnet-4-5"
+#
+# [[fallback]]
+# provider = "ollama"
+# model = "llama3.2"
+
+# Maximum tokens the model may generate per response.
+max_output_tokens = 4096
+
+# Hard cap on provider round-trips per turn, so a confused model cannot loop
+# forever.
+max_iterations = 25
+
+# Whether the model may use tools at all.
+tools_enabled = true
+
+# Where the assistant reads and writes files.
+# workspace = "/home/you/projects"
+
+# Where sessions and other state are stored.
+# state_dir = "~/.local/share/lia"
+
+# Override the system prompt. Leave unset to use the built-in one.
+# system_prompt = "You are lia, a capable AI assistant..."
+
+# Log level for tracing: "error", "warn", "info", "debug", "trace".
+log_level = "info"
+
+# Which palette the interface is drawn in: "dark", "light", or "auto", which
+# asks the terminal what it is. The environment variable LIA_THEME overrides
+# this.
+theme = "auto"
+
+# Whether skills are discovered and offered to the model. A skill is a
+# directory with a SKILL.md file, holding a procedure the assistant loads
+# when a task calls for one.
+skills_enabled = true
+
+# Extra directories to look for skills in, beyond the usual ones.
+# extra_skill_dirs = ["/opt/team/skills"]
+
+# Whether MCP servers are connected and their tools offered to the model.
+mcp_enabled = true
+
+# Tool approval settings.
+[approval]
+# "ask" (ask before running a risky tool), "allow", or "deny".
+policy = "ask"
+
+# Tools that never require approval.
+always_allowed = ["read_file", "list_directory"]
+
+# Tools that are always denied, whatever the policy says.
+always_denied = []
+
+# What to do when nobody can be asked — a one-shot run, or a channel that
+# cannot deliver the question. Defaults to "deny", which is the safe choice.
+# A chat can be asked, so "policy" decides there: the assistant asks in the
+# conversation, and only the person who asked it something may answer.
+on_no_interaction = "deny"
+
+# The sandbox shell commands run in.
+[sandbox]
+# Whether commands are run in a sandbox, when one can be made. The sandbox
+# is bubblewrap: the workspace is the one place the command may write, and
+# the rest of the disk can only be read. Where bubblewrap is missing or
+# does not work — inside a container, or where the kernel says no — the
+# commands run as they did before.
+enabled = false
+
+# Whether a sandboxed command may reach the network. Turning it off stops
+# a command from talking to anything, but it also stops it from fetching
+# what it needs.
+network = true
+
+# Whether everything in the home directory is hidden, apart from the
+# workspace. This keeps the assistant away from keys kept there, but it
+# also hides the tools it is used to having.
+hide_home = false
+
+# How a provider that will not answer is asked again.
+[retry]
+# How many times a request is sent in all. One means no retry.
+attempts = 3
+
+# How long the first pause is, in milliseconds. The later pauses are
+# longer, so a provider that is down for a while is not hammered.
+backoff_ms = 500
+
+# Ollama settings.
+[ollama]
+# How long a model should stay loaded after it has answered. Ollama keeps
+# one in memory for a while by itself; a longer time means a local model
+# is ready for the next question instead of being loaded again.
+# keep_alive = "10m"
+
+# Whether the model should think before answering. Left unset, the model
+# decides for itself.
+# think = true
+
+# Memory settings.
+[memory]
+# Whether the assistant sorts the notes of the days that have passed into
+# the curated files, MEMORY.md and USER.md. A fact that came from the
+# network is never kept this way.
+consolidate = true
+
+# How often, in hours.
+every_hours = 12
+
+# How lia listens and speaks.
+#
+# Nothing here is needed to start. Hearing is found on the machine by
+# looking for the usual programs — pw-record or arecord for the microphone,
+# whisper-cli for the words. Speaking has a neural voice built in: Phonon
+# runs in this process and needs no Python and no PyTorch. It is used when
+# no other speaker is found and a player (gst-play-1.0, pw-play, ffplay, ...)
+# is present; a program or an endpoint can be named instead when that is
+# preferred.
+#
+# This section is for when the wrong one is found, or for an endpoint
+# instead of a program.
+[voice]
+# Whether the voice is offered at all.
+enabled = true
+
+# The command that records, writing raw 16 kHz mono PCM to stdout.
+# record_command = ["pw-record", "--format", "s16", "--rate", "16000", "--channels", "1", "-"]
+
+# The command that turns a wav into words on stdout. The wav is given to
+# the program by the name "{file}", or on its standard input when there is
+# no "{file}" in the arguments.
+# transcribe_command = ["whisper-cli", "-m", "/home/you/models/ggml-base.en.bin", "-f", "{file}", "-nt"]
+
+# The model file a local transcriber should use. Left unset, the usual
+# places are looked in.
+# transcribe_model = "/home/you/models/ggml-base.en.bin"
+
+# An endpoint that transcribes a wav sent as a form, instead of a program.
+# The shape is the one whisper-server and OpenAI both use.
+# transcribe_url = "http://127.0.0.1:8080/v1/audio/transcriptions"
+# transcribe_api_key_env = "LIA_TRANSCRIBE_API_KEY"
+# transcribe_api_model = "whisper-1"
+
+# Phonon, the neural voice built into lia. It is chosen by itself when no
+# other speaker is found and a player is present; naming it here makes
+# the choice explicit. The gateway can serve both Phonon and a program that
+# writes a wav to a browser, and Phonon can synthesize audio on a machine
+# with no player, which is useful for a headless server.
+# speak_provider = "phonon"
+#
+# The default is Phonon 31m (English), downloaded from Hugging Face on the
+# first request and cached. Another checkpoint can be named instead: a
+# Hugging Face repository, a local directory, or a config.json.
+# hf://gradium/phonon-40m-multilingual speaks all five languages; the
+# one-language checkpoints are -en, -fr, -de, -es and -pt. The 40m models
+# are gated: accept their terms on Hugging Face and set HF_TOKEN first.
+# speak_model = "hf://gradium/phonon-31m-en"
+#
+# A voice the checkpoint does not have is looked up in the Phonon voice
+# catalog and downloaded when it is first used. A path to a voice
+# .safetensors file also works. Left unset, the checkpoint's own voice is
+# used. Pick a voice in the language of the text; "Juniper" is English.
+# voice = "Juniper"
+
+# The command that speaks the text on stdin, instead of an endpoint.
+# speak_command = ["spd-say", "-e", "-w"]
+
+# The command that turns the text on stdin into a wav on stdout, which is
+# then played. This is another way to use a neural voice: piper, for
+# instance, writes a wav that sounds like a person rather than a machine.
+# The gateway also serves this wav to the browser, so the page hears the
+# same voice as the terminal.
+# speak_wav_command = ["piper", "--model", "/home/you/models/en_US-hfc_female-medium.onnx"]
+
+# The voice a local speech engine should use. For Phonon this is a
+# checkpoint, as above; for piper it is the .onnx model file. Left unset,
+# the voices are looked for in the usual places.
+# speak_model = "/home/you/models/en_US-hfc_female-medium.onnx"
+
+# Extra arguments for the speech engine, given after its own arguments.
+# --length_scale 1.1 makes a piper voice speak a little more slowly.
+# speak_options = ["--length_scale", "1.1"]
+
+# An endpoint that answers with sound, instead of a program.
+# speak_url = "http://127.0.0.1:8080/v1/audio/speech"
+# speak_api_key_env = "LIA_SPEAK_API_KEY"
+# speak_api_model = "tts-1"
+# voice = "alloy"
+
+# An ElevenLabs voice, spoken to in its own way: the voice rides in the
+# address and the key in an "xi-api-key" header. Naming the provider is
+# not strictly needed — an address with "elevenlabs" in it is recognised
+# — and each default is of its kind: the model becomes "eleven_turbo_v2",
+# the key is read from ELEVENLABS_API_KEY, and, when no voice is named,
+# the voice J.A.R.V.I.S speaks with is used. Only the base is named, and
+# the address of the voice's endpoint is worked out from it.
+# speak_provider = "elevenlabs"
+# speak_url = "https://api.elevenlabs.io/v1"
+# speak_api_key_env = "ELEVENLABS_API_KEY"
+# speak_api_model = "eleven_turbo_v2"
+# voice = "xFjhlCVIoEAjDeZpAmFe"
+
+# The command that plays the sound. The sound is given to the program by
+# the name "{file}", or on its standard input when there is no "{file}" in
+# the arguments.
+# play_command = ["gst-play-1.0", "{file}"]
+
+# The word lia answers to. In the hands-free mode only the words that
+# name her are for her.
+# wake_word = "lia"
+
+# The language of the voice: what whisper should expect, and what Phonon
+# should normalize the text for. A locale such as "en-US" is read as its
+# language; "none" turns Phonon's normalization off.
+# language = "en"
+
+# How long a recording may last, in seconds.
+max_seconds = 60
+
+# How long a silence ends a recording, in milliseconds. This is what the
+# hands-free mode uses: the recording ends when the person stops talking.
+# silence_ms = 1500
+
+# Live mode: a conversation that does not wait its turn.
+#
+# The microphone stays open while the answer is being said, so talking over
+# her stops it and what you said becomes the next question. Nothing here is
+# needed for the voice alone; this section adds a frame from the camera or
+# the screen to what the model is shown, and tunes the guard that keeps her
+# from answering her own voice.
+[live]
+# What is shown besides the voice: "none", "camera" or "screen". The frame
+# is taken when you speak, not streamed.
+share = "none"
+
+# The command that writes one camera frame to the path in "{file}". The
+# picture must be a PNG or JPEG.
+# camera_command = ["ffmpeg", "-f", "v4l2", "-i", "/dev/video0", "-frames:v", "1", "-y", "{file}"]
+
+# The command that writes one screen frame to the path in "{file}". On a
+# Wayland desktop grim is used; with ImageMagick, `import -window root`.
+# screen_command = ["grim", "{file}"]
+
+# How much of what was heard has to match what she is saying for it to be
+# taken as her own voice rather than as an interruption. One means every
+# word has to match; zero turns the guard off.
+echo_similarity = 0.6
+
+# How long one frame capture may take, in seconds.
+capture_timeout_secs = 10
+
+# Where the web search goes.
+[search]
+# A search engine that answers with JSON, in the shape SearXNG uses. Leave
+# this unset to use the built-in engine, which needs no key. Pointing it at
+# your own SearXNG keeps the searches on your machine and off anybody
+# else's log.
+# endpoint = "http://127.0.0.1:8888/search"
+
+# How many results a search returns.
+count = 5
+
+# MCP servers, by name. Each server's tools are offered as
+# `<server>__<tool>`, so two servers offering a "search" tool do not
+# collide. A server that cannot be reached is reported and skipped.
+# [mcp_servers.notes]
+# transport = "stdio"            # or "streamable_http", or "sse"
+# command = "mcp-server-filesystem"
+# args = ["/home/you/projects"]
+#
+# [mcp_servers.docs]
+# transport = "streamable_http"
+# url = "http://127.0.0.1:8931/mcp"
+# headers = { authorization = "Bearer ..." }
+# timeout_secs = 60
+
+# The folders the assistant may reach outside its workspace. Name them here
+# and lia starts a file server of its own, offering the folders to the model
+# as `files__read_file` and the rest. A folder that is not named cannot be
+# reached through it. A `~` at the start stands for the home directory.
+[filesystem]
+allow = []
+
+# Whether the file server may only read. With this set, the writing tools
+# are not offered at all.
+read_only = false
+
+# Gateway server settings.
+[gateway]
+# The gateway binds to localhost by default. Only change this if you intend
+# to expose it, and set a token if you do.
+host = "127.0.0.1"
+port = 8787
+
+# Shared secret clients must present. Unset means no authentication, which is
+# only safe while the gateway is bound to localhost.
+# token = "some-long-random-string"
+
+# Channels are configured with environment variables, not here, so their
+# secrets never land in a config file. `lia setup` asks for them and keeps
+# them in secrets.toml beside this file; `lia serve` starts every channel
+# that is configured.
+#
+#   TELEGRAM_BOT_TOKEN=...  TELEGRAM_ALLOWED_CHATS=123456789
+#
+# The allow-lists name the people who may talk to the assistant straight
+# away. Anybody else who writes in is given a pairing code, which the
+# owner approves with `lia pair approve <code>` or with `/pair <code>` in
+# a chat that is already allowed.
+#   DISCORD_BOT_TOKEN=...   DISCORD_ALLOWED_CHANNELS=111222333
+#                          DISCORD_ALLOWED_USERS=998877665
+#   SLACK_BOT_TOKEN=...     SLACK_ALLOWED_CHANNELS=C0123456789
+#                          SLACK_ALLOWED_USERS=U9876543210
+#
+# WhatsApp uses the Cloud API and a webhook rather than polling. The webhook
+# listens on 127.0.0.1:8788 at /webhooks/whatsapp by default; expose it over
+# HTTPS (a tunnel will do) and give Meta the address and verify token.
+#   WHATSAPP_TOKEN=...                WHATSAPP_PHONE_NUMBER_ID=...
+#   WHATSAPP_VERIFY_TOKEN=...         WHATSAPP_APP_SECRET=...
+#   WHATSAPP_ALLOWED_NUMBERS=15551234567
+#   WHATSAPP_WEBHOOK_PORT=8788        # optional
+#
+# The allow-lists are empty by default: an unconfigured bot answers nobody.

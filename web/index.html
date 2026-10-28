@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#05080e">
+<title>lia</title>
+<link rel="stylesheet" href="/assets/base.css">
+<link rel="stylesheet" href="/assets/chat.css">
+<link rel="stylesheet" href="/assets/composer.css">
+<link rel="stylesheet" href="/assets/overlays.css">
+<link rel="stylesheet" href="/assets/controls.css">
+<link rel="stylesheet" href="/assets/responsive.css">
+<link rel="stylesheet" href="/assets/nexus.css">
+</head>
+<body>
+<canvas id="field" aria-hidden="true"></canvas>
+<div class="grid" aria-hidden="true"></div>
+<div class="vignette" aria-hidden="true"></div>
+<div class="scanlines" aria-hidden="true"></div>
+<div class="scanbeam" aria-hidden="true"></div>
+
+<span class="corner tl" aria-hidden="true"></span>
+<span class="corner tr" aria-hidden="true"></span>
+<span class="corner bl" aria-hidden="true"></span>
+<span class="corner br" aria-hidden="true"></span>
+
+<div class="hud">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <span class="mark-ring"></span>
+        <span class="mark-core"></span>
+      </div>
+      <div>
+        <div class="brand-name">LIA<span class="brand-os">OS</span></div>
+        <div class="brand-sub">LOCAL INTELLIGENCE ARRAY</div>
+      </div>
+    </div>
+
+    <div class="top-status" aria-label="runtime status">
+      <span class="status-chip">
+        <span class="dot" id="dot" title="not connected"></span>
+        LINK <b id="linkText">linking</b>
+      </span>
+      <span class="status-chip">
+        <span class="chip-icon" aria-hidden="true">◈</span>
+        CORE <b id="statOnline">--</b>
+      </span>
+      <span class="status-chip">
+        MODEL <b id="model">unresolved</b>
+      </span>
+      <span class="status-chip">
+        SESSION <b id="session">—</b>
+      </span>
+      <span class="status-chip secure" id="statSecureChip">
+        <span class="chip-icon" aria-hidden="true">⬡</span>
+        SECURE <b id="statSecure">--</b>
+      </span>
+      <span class="status-chip">
+        <span class="chip-icon" aria-hidden="true">◔</span>
+        LOAD <b id="statLoad">--</b>
+      </span>
+      <span class="status-chip">
+        <span class="chip-icon" aria-hidden="true">⇅</span>
+        NET <b id="statNet">--</b>
+      </span>
+    </div>
+
+    <div class="top-right">
+      <div class="clock-wrap">
+        <b id="clock">--:--:--</b>
+        <small id="clockDate">awaiting sync</small>
+      </div>
+      <button class="icon-button" id="configButton" title="configuration" aria-label="configuration">⚙</button>
+      <button class="icon-button" id="theme" title="switch the light" aria-label="switch theme">◐</button>
+    </div>
+  </header>
+
+  <main class="deck">
+    <aside class="sidebar panel system-panel">
+      <div class="panel-title">
+        <span>System Monitor</span>
+        <span class="live-tag"><i aria-hidden="true"></i>Live</span>
+      </div>
+
+      <div class="health-card">
+        <div class="health-ring" id="healthRing" data-status="ok" aria-label="system health">
+          <span id="healthScore">--</span>
+        </div>
+        <div class="health-copy">
+          <div class="health-status" id="healthStatus">measuring</div>
+          <div class="health-meta">
+            <span>uptime <b id="healthUptime">--</b></span>
+            <span>temp <b id="healthTemp">--</b></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="tile-grid">
+        <div class="sys-tile">
+          <div class="tile-head"><span>CPU</span><b id="tileCpu">--</b></div>
+          <svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+            <polyline id="sparkCpu" points="0,20 25,19 50,20 75,18 100,19"></polyline>
+          </svg>
+        </div>
+        <div class="sys-tile" data-tone="violet">
+          <div class="tile-head"><span>Memory</span><b id="tileMemory">--</b></div>
+          <svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+            <polyline id="sparkMemory" points="0,18 25,17 50,18 75,17 100,18"></polyline>
+          </svg>
+        </div>
+        <div class="sys-tile" data-tone="blue">
+          <div class="tile-head"><span>Network</span><b id="tileNetwork">--</b></div>
+          <svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+            <polyline id="sparkNetwork" points="0,20 25,20 50,19 75,20 100,19"></polyline>
+          </svg>
+        </div>
+        <div class="sys-tile" data-tone="amber">
+          <div class="tile-head"><span>Disk</span><b id="tileDisk">--</b></div>
+          <svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+            <polyline id="sparkDisk" points="0,19 25,19 50,19 75,19 100,19"></polyline>
+          </svg>
+        </div>
+        <div class="sys-tile" data-tone="violet">
+          <div class="tile-head"><span>GPU</span><b id="tileGpu">--</b></div>
+          <svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+            <polyline id="sparkGpu" points="0,20 25,19 50,20 75,18 100,19"></polyline>
+          </svg>
+        </div>
+        <div class="sys-tile" data-tone="green">
+          <div class="tile-head"><span>Power</span><b id="tilePower">--</b></div>
+          <svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+            <polyline id="sparkPower" points="0,10 25,10 50,10 75,10 100,10"></polyline>
+          </svg>
+        </div>
+      </div>
+
+      <div class="proc-block">
+        <div class="block-title">Top processes</div>
+        <ul class="proc-list" id="processList" aria-label="top processes by cpu">
+          <li><span class="proc-name">sampling the lattice…</span><span class="proc-cpu">--</span><span class="proc-mem">--</span></li>
+        </ul>
+      </div>
+
+      <div class="sys-foot">
+        <span>host <b id="hostName">--</b></span>
+        <span>kernel <b id="kernel">--</b></span>
+      </div>
+    </aside>
+
+    <section class="core-stage">
+      <div class="core-metrics" aria-label="runtime totals">
+        <div class="core-metric"><b id="metricTools">--</b><span>TOOLS</span></div>
+        <div class="core-metric"><b id="metricSkills">--</b><span>SKILLS</span></div>
+        <div class="core-metric"><b id="metricSessions">--</b><span>SESSIONS</span></div>
+        <div class="core-metric"><b id="metricLatency">--</b><span>LATENCY</span></div>
+      </div>
+
+      <div class="orb-wrap" id="orbWrap" role="button" tabindex="0" aria-label="cycle telemetry readout">
+        <div class="orb-halo" aria-hidden="true"></div>
+        <div class="orb-ring ring-outer" aria-hidden="true"></div>
+        <div class="orb-ring ring-mid" aria-hidden="true"></div>
+        <div class="orb-ring ring-inner" aria-hidden="true"></div>
+        <div class="orb-axis" aria-hidden="true"></div>
+        <span class="orb-readout p1" id="orbPct1">--</span>
+        <span class="orb-readout p2" id="orbPct2">--</span>
+        <span class="orb-readout p3" id="orbPct3">--</span>
+        <span class="orb-readout p4" id="orbPct4">--</span>
+        <span class="orb-readout p5" id="orbPct5">--</span>
+        <span class="orb-readout p6" id="orbPct6">--</span>
+        <span class="orb-readout p7" id="orbPct7">--</span>
+        <span class="orb-readout p8" id="orbPct8">--</span>
+        <div class="orb-core" aria-hidden="true">
+          <div class="orb-glyph"></div>
+          <div class="orb-word">LIA</div>
+        </div>
+      </div>
+
+      <div class="core-state" id="orbState">STANDBY</div>
+      <div class="core-sub" id="orbSub">local intelligence array</div>
+      <div class="core-tabs" id="orbTabs" aria-hidden="true">
+        <span class="active">CPU</span><span>Memory</span><span>Network</span><span>Disk</span>
+      </div>
+      <p class="core-hint">click the core to cycle telemetry</p>
+
+      <section class="activity" id="activity" data-mode="idle" aria-live="polite">
+        <div class="activity-orb" aria-hidden="true">
+          <span class="ring-a"></span><span class="ring-b"></span>
+        </div>
+        <div class="activity-copy">
+          <div class="activity-kicker">
+            <span id="actionLabel">System idle</span>
+            <span aria-hidden="true">/</span>
+            <span id="actionTool">no active process</span>
+          </div>
+          <div class="activity-text" id="actionText">awaiting directive</div>
+        </div>
+        <div class="activity-bars" id="actionBars" aria-hidden="true"></div>
+        <div class="activity-time">
+          <span id="actionTimer">00:00.0</span>
+          <small>elapsed</small>
+        </div>
+      </section>
+    </section>
+
+    <section class="console">
+      <div class="console-bar">
+        <span class="channel">Command Console</span>
+        <span class="stat session" id="channelSession">standby</span>
+        <span class="bar-spacer"></span>
+        <span class="stat" id="msgCount">00 entries</span>
+        <span class="stat" id="usage">tokens —</span>
+      </div>
+
+      <div class="conversation" id="wrap">
+        <section id="transcript" role="log" aria-live="polite" aria-label="conversation"></section>
+        <button id="newest">↓ newest signal</button>
+      </div>
+
+      <div class="quick-commands" aria-label="quick commands">
+        <button class="quick-command" data-prompt="/tools">tools</button>
+        <button class="quick-command" data-tone="green" data-prompt="Run a system health check and report the score, load, memory and disk status.">health</button>
+        <button class="quick-command" data-tone="violet" data-prompt="List the busiest processes by CPU and memory.">processes</button>
+        <button class="quick-command" data-prompt="Summarize network throughput and the active interfaces.">network</button>
+        <button class="quick-command" data-tone="amber" data-prompt="Run a security audit and report findings without revealing any secret values.">security</button>
+        <button class="quick-command" data-prompt="/skills">skills</button>
+      </div>
+
+      <footer class="composer">
+        <div class="palette" id="palette" hidden>
+          <div class="palette-head">
+            <span id="paletteTitle">commands</span>
+            <span id="paletteHint">↑↓ select · enter run · esc close</span>
+          </div>
+          <div class="palette-list" id="paletteList" role="listbox" aria-label="command suggestions"></div>
+        </div>
+        <div class="attachments" id="attachments" hidden></div>
+        <div class="voice-live" id="voiceLive" hidden aria-live="polite">
+          <span class="voice-live-pip" aria-hidden="true"></span>
+          <span id="voiceLiveText"></span>
+        </div>
+        <div class="composer-shell">
+          <span class="prompt-mark" aria-hidden="true">❯</span>
+          <textarea id="input" rows="1" placeholder="Transmit a directive, or / for commands…" aria-label="message to Lia"></textarea>
+          <button class="send" id="send" aria-label="send message"><span>send</span><span class="arrow" aria-hidden="true">↵</span></button>
+        </div>
+        <div class="composer-hints">
+          <span><span class="key">enter</span> transmit</span>
+          <span class="secondary-hint"><span class="key">shift+enter</span> newline</span>
+          <button class="hint-button" id="commandButton" type="button">/ commands</button>
+          <span class="voice-hint" id="voiceHint" hidden>voice off</span>
+          <span class="hint-spacer"></span>
+          <span class="chars" id="charCount">000</span>
+        </div>
+        <input type="file" id="imagePicker" accept="image/*" multiple hidden>
+      </footer>
+    </section>
+  </main>
+
+  <footer class="dock">
+    <div class="dock-side">
+      <span class="dock-wave" aria-hidden="true">◉</span>
+      <span>NODE <b>LOCAL</b> · MODE <b id="mode">STANDBY</b></span>
+    </div>
+
+    <div class="dock-items" aria-label="applications">
+      <button class="dock-item" id="sessionButton" type="button" title="session index" aria-label="session index">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M4 5h16M4 12h16M4 19h10"/><circle cx="19" cy="19" r="2"/>
+        </svg>
+        <span>sessions</span>
+      </button>
+      <button class="dock-item" id="latticeButton" type="button" title="lattice" aria-label="lattice">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zM12 3v18M4 7.5l8 4.5 8-4.5"/>
+        </svg>
+        <span>lattice</span>
+      </button>
+      <button class="dock-item" id="commandDock" type="button" title="command palette" aria-label="command palette">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M5 7l5 5-5 5M13 17h6"/>
+        </svg>
+        <span>command</span>
+      </button>
+      <button class="dock-item" id="configDock" type="button" title="configuration" aria-label="configuration">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>
+        </svg>
+        <span>config</span>
+      </button>
+      <button class="dock-item" id="systemDock" type="button" title="system health" aria-label="system health">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M3 13h4l2-6 4 12 2-6h6"/>
+        </svg>
+        <span>health</span>
+      </button>
+      <button class="dock-mic" id="voiceOrb" type="button" title="voice channel" aria-label="voice channel">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <rect x="9" y="3" width="6" height="11" rx="3"/>
+          <path d="M5 11a7 7 0 0014 0M12 18v3M9 21h6"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="dock-side right">
+      <span class="dock-status" id="voiceState">voice idle</span>
+      <span class="dock-wave" aria-hidden="true">◌</span>
+    </div>
+  </footer>
+</div>
+
+<div class="drawer-scrim" id="drawerScrim" hidden></div>
+
+<aside class="drawer" id="sessionDrawer" aria-label="session index" hidden>
+  <button class="drawer-close" id="drawerClose" type="button" aria-label="close sessions">×</button>
+  <div class="panel-title"><span>Session Index</span><b id="sessionCount">00</b></div>
+  <button class="new-session" id="new"><span>new conversation</span><span class="plus">+</span></button>
+  <ul class="session-list" id="sessions" aria-label="sessions"></ul>
+  <div class="sidebar-foot">
+    <span>NODE <b>LOCAL</b></span>
+    <span>MODE <b>STANDBY</b></span>
+    <span class="sidebar-signal" aria-hidden="true">
+      <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+    </span>
+  </div>
+</aside>
+
+<aside class="drawer lattice" id="latticeDrawer" aria-label="lattice" hidden>
+  <button class="drawer-close" id="latticeClose" type="button" aria-label="close lattice">×</button>
+  <div class="panel-title"><span>Lattice</span><b id="latticeStatus">--</b></div>
+  <div class="lattice-grid">
+    <div>
+      <div class="block-title">Tools online</div>
+      <ul class="lattice-list" id="toolList"></ul>
+    </div>
+    <div>
+      <div class="block-title">Skills mounted</div>
+      <ul class="lattice-list" id="skillList"></ul>
+    </div>
+  </div>
+  <div class="block-title">Diagnostics</div>
+  <ul class="lattice-list" id="checkList"></ul>
+  <p class="lattice-note">
+    Everything here runs on this host. Telemetry is read from /proc, sysfs and statvfs;
+    no request leaves the machine unless a configured provider is called.
+  </p>
+</aside>
+
+<div class="config-overlay" id="configPanel" hidden>
+  <form class="config-card" id="configForm" role="dialog" aria-modal="true" aria-labelledby="config-title">
+    <div class="config-head">
+      <div>
+        <h2 id="config-title">Configuration</h2>
+        <p class="config-path" id="configPath">reading configuration…</p>
+      </div>
+      <button type="button" class="icon-button" id="configClose" aria-label="close configuration">×</button>
+    </div>
+    <div class="config-grid">
+      <label class="config-field">
+        <span>Provider</span>
+        <select id="cfgProvider">
+          <option value="openai">openai</option>
+          <option value="anthropic">anthropic</option>
+          <option value="ollama">ollama</option>
+          <option value="ollama-cloud">ollama-cloud</option>
+        </select>
+      </label>
+      <label class="config-field">
+        <span>Model</span>
+        <input id="cfgModel" type="text" autocomplete="off" spellcheck="false" placeholder="provider default">
+      </label>
+      <label class="config-field">
+        <span>Temperature</span>
+        <input id="cfgTemperature" type="number" step="0.1" min="0" max="2" placeholder="default">
+      </label>
+      <label class="config-field">
+        <span>Max output tokens</span>
+        <input id="cfgMaxOutput" type="number" min="1" step="1">
+      </label>
+      <label class="config-field">
+        <span>Max iterations</span>
+        <input id="cfgMaxIterations" type="number" min="1" step="1">
+      </label>
+      <label class="config-field">
+        <span>Approval policy</span>
+        <select id="cfgApproval">
+          <option value="ask">ask</option>
+          <option value="allow">allow</option>
+          <option value="deny">deny</option>
+        </select>
+      </label>
+      <label class="config-field">
+        <span>Terminal theme</span>
+        <select id="cfgTheme">
+          <option value="auto">auto</option>
+          <option value="dark">dark</option>
+          <option value="light">light</option>
+        </select>
+      </label>
+      <label class="config-field">
+        <span>Wake word</span>
+        <input id="cfgWakeWord" type="text" autocomplete="off" spellcheck="false" placeholder="lia">
+      </label>
+      <label class="config-field">
+        <span>Voice language</span>
+        <input id="cfgLanguage" type="text" autocomplete="off" spellcheck="false" placeholder="browser language">
+      </label>
+      <div class="config-switches">
+        <label class="config-switch"><input type="checkbox" id="cfgTools"><span>Tools enabled</span></label>
+        <label class="config-switch"><input type="checkbox" id="cfgSkills"><span>Skills enabled</span></label>
+        <label class="config-switch"><input type="checkbox" id="cfgVoice"><span>Voice enabled</span></label>
+      </div>
+    </div>
+    <div class="config-status" id="configStatus" role="status"></div>
+    <div class="config-note">
+      Settings are written to the file above. Provider, model, tool, voice and agent changes
+      take effect after the gateway is restarted.
+    </div>
+    <div class="config-actions">
+      <button type="button" id="configCancel">cancel</button>
+      <button type="submit" class="primary">save configuration</button>
+    </div>
+  </form>
+</div>
+
+<div class="gate" id="gate" role="dialog" aria-modal="true" aria-labelledby="gate-title">
+  <form class="gate-card" id="gate-form">
+    <h2 id="gate-title">Gateway authentication</h2>
+    <p>This instance is sealed. Enter the access token from the configuration to open the channel.</p>
+    <input id="gate-token" type="password" autocomplete="off" spellcheck="false" placeholder="access token" aria-label="access token">
+    <div class="gate-actions">
+      <button type="button" id="gate-cancel">cancel</button>
+      <button type="submit" class="primary">open channel</button>
+    </div>
+  </form>
+</div>
+
+<script src="/assets/core.js"></script>
+<script src="/assets/chat.js"></script>
+<script src="/assets/input.js"></script>
+<script src="/assets/commands.js"></script>
+<script src="/assets/voice.js"></script>
+<script src="/assets/media.js"></script>
+<script src="/assets/send.js"></script>
+<script src="/assets/markdown.js"></script>
+<script src="/assets/welcome.js"></script>
+<script src="/assets/effects.js"></script>
+<script src="/assets/nexus.js"></script>
+<script src="/assets/boot.js"></script>
+</body>
+</html>

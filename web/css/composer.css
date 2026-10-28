@@ -1,0 +1,125 @@
+/* The composer                                                        */
+/* ------------------------------------------------------------------ */
+
+.composer {
+  padding: 11px 15px 9px;
+  border-top: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.composer-shell {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 9px;
+  padding: 8px 9px 8px 11px;
+  border: 1px solid var(--line-2);
+  border-radius: 2px;
+  background: var(--void);
+  transition: 180ms ease;
+}
+.composer-shell:focus-within {
+  border-color: var(--cyan);
+  box-shadow:
+    0 0 0 1px rgba(85, 231, 255, 0.12),
+    0 0 28px rgba(85, 231, 255, 0.08);
+}
+body.busy .composer-shell { border-color: var(--line); }
+
+.prompt-mark {
+  flex: 0 0 auto;
+  color: var(--cyan);
+  font-size: 15px;
+  line-height: 1.5;
+  padding-bottom: 2px;
+  text-shadow: 0 0 12px rgba(85, 231, 255, 0.5);
+}
+body.busy .prompt-mark { color: var(--violet); animation: blink-soft 1.4s ease-in-out infinite; }
+
+#input {
+  flex: 1;
+  width: 100%;
+  min-height: 27px;
+  max-height: 30vh;
+  padding: 2px 0;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  caret-color: var(--cyan);
+  line-height: 1.55;
+}
+#input::placeholder { color: var(--dim); }
+#input:disabled { opacity: 0.55; }
+
+.send {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 31px;
+  padding: 0 11px;
+  border: 1px solid var(--line-2);
+  border-radius: 2px;
+  background: linear-gradient(135deg, rgba(85, 231, 255, 0.14), rgba(169, 136, 255, 0.08));
+  color: var(--cyan-soft);
+  cursor: pointer;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  transition: 160ms ease;
+}
+.send:hover:not(:disabled) {
+  color: var(--white);
+  border-color: var(--cyan);
+  box-shadow: 0 0 20px rgba(85, 231, 255, 0.14);
+}
+.send:disabled { opacity: 0.45; cursor: wait; }
+.send .arrow { font-size: 13px; line-height: 1; }
+.send.busy .arrow { animation: spin 1s linear infinite; }
+
+.composer-hints {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px 15px;
+  margin-top: 7px;
+  color: var(--dim);
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.composer-hints .key {
+  display: inline-block;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 1px;
+  color: var(--muted);
+}
+.composer-hints .hint-spacer { flex: 1; }
+.composer-hints .chars { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Newest marker. */
+#newest {
+  position: absolute;
+  right: 18px;
+  bottom: 14px;
+  z-index: 2;
+  display: none;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line-2);
+  border-radius: 2px;
+  background: var(--panel-solid);
+  color: var(--cyan);
+  padding: 5px 10px;
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+}
+#newest.show { display: inline-flex; animation: entry-in 220ms ease; }
+
+/* ------------------------------------------------------------------ */

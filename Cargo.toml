@@ -1,0 +1,76 @@
+[package]
+name = "lia"
+version = "0.1.1"
+edition = "2024"
+description = "A local-first AI assistant: agent core, gateway daemon, and channel adapters"
+license = "MIT"
+
+[dependencies]
+# async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures-util = "0.3"
+async-trait = "0.1"
+async-stream = "0.3"
+
+# http / providers
+reqwest = { version = "0.12", features = ["json", "stream", "multipart", "rustls-tls"], default-features = false }
+reqwest-eventsource = "0.1"
+eventsource-stream = "0.2"
+base64 = "0.22"
+
+# serde
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.9"
+
+# webhook signatures
+hmac = "0.12"
+hex = "0.4"
+
+# cli / tui
+clap = { version = "4", features = ["derive", "env"] }
+ratatui = "0.30"
+crossterm = "0.29"
+# Measuring the text as the terminal draws it, for the cursor's position.
+unicode-width = "0.2"
+
+# gateway
+axum = { version = "0.8", features = ["ws", "macros"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# errors / logging
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# util
+uuid = { version = "1", features = ["v4", "serde"] }
+# The system monitor asks the kernel how much of the disk is left.
+libc = "0.2"
+dirs = "6"
+chrono = { version = "0.4", features = ["serde"] }
+glob = "0.3"
+walkdir = "2"
+shell-words = "1"
+globset = "0.4"
+similar = "2"
+sha2 = "0.10"
+regex = "1"
+ptts = { version = "0.4.2", features = ["hf", "hub"] }
+
+[dev-dependencies]
+tempfile = "3"
+# The key map is exercised the way the terminal exercises it.
+crossterm = "0.29"
+
+# The MCP test binary is also the mock MCP server, so it runs its own main.
+[[test]]
+name = "mcp"
+harness = false
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true

@@ -1,0 +1,31 @@
+{
+  "name": "lia",
+  "version": "1.0.0",
+  "description": "A local-first AI assistant: agent core, gateway daemon, and channel adapters.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "example": "examples",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build:web": "vite build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/binkapS/lia.git"
+  },
+  "keywords": [],
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/binkapS/lia/issues"
+  },
+  "homepage": "https://github.com/binkapS/lia#readme",
+  "dependencies": {
+    "phonon-tts": "^0.5.0"
+  },
+  "devDependencies": {
+    "vite": "^8.3.5"
+  }
+}
