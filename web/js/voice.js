@@ -5,7 +5,7 @@
 /* ------------------------------------------------------------------ */
 
 /** The voices on the picker, by name. */
-const VOICES = ["Toby", "Russell", "Freya", "Harper"];
+const VOICES = ["Harper", "Toby", "Russell", "Freya"];
 
 // Their files in gradium/phonon-voices, by voice id (the catalog's voices.jsonl lists them all).
 const VOICE_FILES = {

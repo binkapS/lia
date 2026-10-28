@@ -537,6 +537,8 @@ function setConfigValue(node, value) {
   if (!node) return;
   if (node.type === "checkbox") {
     node.checked = String(value).toLowerCase() === "on";
+  } else if (node.type === "number" && (value === "default" || value === "" || value == null)) {
+    node.value = "";
   } else {
     node.value = value === undefined || value === null ? "" : String(value);
   }

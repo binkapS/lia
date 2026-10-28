@@ -382,9 +382,7 @@ impl PhononSpeaker {
         if lock(&self.resolved_voice).is_some() {
             return Ok(());
         }
-        let Some(query) = self.voice.as_deref() else {
-            return Ok(());
-        };
+        let query = self.voice.as_deref().unwrap_or("Harper");
 
         let mut tts = lock(model);
         let name = register_voice(&mut tts, query)?;
@@ -404,7 +402,12 @@ impl PhononSpeaker {
 
         match lock(&self.resolved_voice).clone() {
             Some(voice) => Ok(Some(SpeechOptions::default().voice(voice))),
-            None => Ok(None),
+            None => {
+                let mut tts = tts;
+                let name = register_voice(&mut tts, "Harper")?;
+                *lock(&self.resolved_voice) = Some(name.clone());
+                Ok(Some(SpeechOptions::default().voice(name)))
+            }
         }
     }
 
