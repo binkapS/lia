@@ -137,11 +137,11 @@ async function loadPhonon(onProgress) {
   if (phononTTSPromise) return phononTTSPromise;
 
   phononTTSPromise = (async () => {
-    const { PhononTTS } = await getPhononModule();
-    // No worker or wasm URLs here: when the library was bundled, the worker
-    // and both wasm builds were emitted beside phonon.js and its own worker
-    // creation was rewritten to point at them. Only the model's weights —
-    // listed in MODEL above — are still fetched, from Hugging Face.
+    await getPhononModule();
+    const PhononTTS = window.PhononTTS;
+    if (!PhononTTS) {
+      throw new Error("phonon-tts did not install its global");
+    }
     const files = new Map();
     const tts = await PhononTTS.load({
       lang: "en",
