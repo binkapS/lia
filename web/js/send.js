@@ -43,6 +43,18 @@ async function deliver(text) {
     }
   }
 
+  if (
+    state.voice.live &&
+    state.voice.liveShare &&
+    state.voice.liveShare !== "none" &&
+    !state.images.length
+  ) {
+    const frame = await captureLiveFrame(state.voice.liveShare);
+    if (frame) {
+      state.images.push(frame);
+    }
+  }
+
   const images = state.images.slice();
   if (images.length) {
     state.images = [];

@@ -64,3 +64,39 @@ function renderAttachments() {
   });
 }
 
+
+async function captureLiveFrame(kind) {
+  if (!navigator.mediaDevices) return null;
+  let stream = null;
+  try {
+    if (kind === "camera") {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    } else if (kind === "screen") {
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    } else {
+      return null;
+    }
+    const video = document.createElement("video");
+    video.srcObject = stream;
+    video.muted = true;
+    await video.play();
+    await new Promise((resolve) => {
+      if (video.readyState >= 2) resolve();
+      else video.onloadeddata = () => resolve();
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+    stream.getTracks().forEach((track) => track.stop());
+    const dataUrl = canvas.toDataURL("image/png");
+    const data = dataUrl.slice(dataUrl.indexOf(",") + 1);
+    return { name: kind + "-frame.png", mediaType: "image/png", data: data };
+  } catch (e) {
+    if (stream) stream.getTracks().forEach((track) => track.stop());
+    if (typeof addLine === "function") {
+      addLine("error", "could not capture the " + kind + ": " + (e && e.message ? e.message : e));
+    }
+    return null;
+  }
+}

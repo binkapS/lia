@@ -250,6 +250,14 @@
           <span class="secondary-hint"><span class="key">shift+enter</span> newline</span>
           <button class="hint-button" id="commandButton" type="button">/ commands</button>
           <span class="voice-hint" id="voiceHint" hidden>voice off</span>
+          <span class="live-control" id="liveControl">
+            <select id="liveShare" aria-label="what live mode shares">
+              <option value="none">none</option>
+              <option value="camera">camera</option>
+              <option value="screen">screen</option>
+            </select>
+            <button class="hint-button" id="liveToggle" type="button">live: off</button>
+          </span>
           <span class="hint-spacer"></span>
           <span class="chars" id="charCount">000</span>
         </div>

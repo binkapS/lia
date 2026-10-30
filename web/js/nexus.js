@@ -711,6 +711,30 @@ function startNexus() {
     });
   });
 
+  if (el.liveToggle) {
+    el.liveToggle.addEventListener("click", () => {
+      if (state.voice.live) {
+        commandLive("off");
+      } else {
+        const share = el.liveShare ? el.liveShare.value : "none";
+        commandLive(share === "none" ? "on" : share);
+      }
+    });
+  }
+  if (el.liveShare) {
+    el.liveShare.addEventListener("change", () => {
+      state.voice.liveShare = el.liveShare.value;
+      if (state.voice.live) {
+        const share = state.voice.liveShare;
+        commandLive(share === "none" ? "on" : share);
+      } else {
+        updateLiveControls();
+      }
+    });
+  }
+
+  if (typeof updateLiveControls === "function") updateLiveControls();
+
   nx.voiceOrb.addEventListener("click", () => {
     if (state.voice.listening) {
       stopListening();

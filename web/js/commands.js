@@ -79,8 +79,8 @@ const COMMANDS = [
   },
   {
     name: "/live",
-    args: "on|off",
-    description: "talk over the answer, with the microphone staying open",
+    args: "on|off|none|camera|screen",
+    description: "talk over the answer, with the microphone staying open, optionally sharing the camera or screen",
     run: commandLive,
   },
   {
@@ -467,34 +467,43 @@ function commandHandsfree(arg) {
 }
 
 function commandLive(arg) {
-  const value = (arg || "").toLowerCase();
-  if (value === "on") {
-    if (!speechRecognition()) {
-      addLine("error", "this browser does not provide speech recognition. try Chrome or Edge.");
-      return;
-    }
-    state.voice.live = true;
-    state.voice.handsfree = false;
-    updateVoiceHint();
-    addLine(
-      "notice",
-      "live is on — the microphone stays open, and talking over the answer stops it."
-    );
-    if (!state.busy && state.connected) {
-      startListening("live");
-    }
-  } else if (value === "off") {
+  const value = (arg || "").toLowerCase().trim();
+  if (value === "off") {
     state.voice.live = false;
+    state.voice.liveShare = "none";
+    if (el.liveShare) el.liveShare.value = "none";
     stopListening();
     cancelSpeech();
     addLine("notice", "live is off.");
     updateVoiceHint();
-  } else {
-    addLine(
-      "notice",
-      "live is " + (state.voice.live ? "on" : "off") + " — /live on|off"
-    );
+    updateLiveControls();
+    return;
   }
+  const share = value === "on" ? (state.voice.liveShare || "none") : value;
+  if (!["none", "camera", "screen"].includes(share)) {
+    addLine("notice", "live is " + (state.voice.live ? "on" : "off") + " — /live on|off|none|camera|screen");
+    updateLiveControls();
+    return;
+  }
+  if (!speechRecognition()) {
+    addLine("error", "this browser does not provide speech recognition. try Chrome or Edge.");
+    return;
+  }
+  state.voice.live = true;
+  state.voice.liveShare = share;
+  state.voice.handsfree = false;
+  if (el.liveShare) el.liveShare.value = share;
+  updateVoiceHint();
+  addLine(
+    "notice",
+    "live is on — the microphone stays open" +
+      (share !== "none" ? ", sharing the " + share + "." : ".") +
+      " talking over the answer stops it."
+  );
+  if (!state.busy && state.connected) {
+    startListening("live");
+  }
+  updateLiveControls();
 }
 
 function commandQuit() {
@@ -714,3 +723,12 @@ function handleVoiceText(text, mode) {
   deliver(spoken);
 }
 
+
+function updateLiveControls() {
+  if (!el.liveToggle) return;
+  el.liveToggle.textContent = "live: " + (state.voice.live ? "on" : "off");
+  el.liveToggle.classList.toggle("active", !!state.voice.live);
+  if (el.liveShare && state.voice.liveShare) {
+    el.liveShare.value = state.voice.liveShare;
+  }
+}
