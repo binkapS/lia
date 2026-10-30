@@ -505,7 +505,7 @@ function speakSpeechLine(speech, line) {
       speech.table = true;
       enqueueSpeech(
         speech,
-        "Rather than read the whole table out, it's on your screen."
+        "I have placed the detailed table overview on the console"
       );
     }
     return;

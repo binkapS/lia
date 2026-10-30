@@ -59,7 +59,7 @@ const ACKNOWLEDGED: [&str; 20] = [
 const CODE_CUE: &str = "I've laid the code out on screen — open it when you're ready.";
 
 /// What is said when the answer puts a wide table on the screen.
-const TABLE_CUE: &str = "Rather than read the whole table out, it's on your screen.";
+const TABLE_CUE: &str = "I have placed the detailed table overview on the console";
 
 /// The words the roster of a long list ends with.
 const CONNECTORS: [&str; 5] = ["Then,", "Also,", "Next,", "And,", "Besides,"];
