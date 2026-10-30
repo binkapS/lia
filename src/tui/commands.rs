@@ -87,6 +87,11 @@ pub const COMMANDS: &[CommandSpec] = &[
         description: "show or change a saved setting",
     },
     CommandSpec {
+        name: "/new",
+        args: "",
+        description: "start a new session",
+    },
+    CommandSpec {
         name: "/quit",
         args: "",
         description: "leave the interface",

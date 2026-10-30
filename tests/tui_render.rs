@@ -263,7 +263,7 @@ async fn a_slash_opens_a_filtered_command_preview() {
     assert!(all.contains("COMMANDS"), "the preview is not shown:\n{all}");
     assert!(all.contains("/help"), "the commands are not listed:\n{all}");
     assert!(all.contains("/image"));
-    assert!(all.contains("COMMANDS · 15"));
+    assert!(all.contains("COMMANDS · 16"));
 
     for c in "he".chars() {
         lia::tui::handle_key(
@@ -291,7 +291,7 @@ async fn the_command_preview_follows_a_long_selection() {
     let mut app = App::new(lia::Config::default());
     app.input.insert_char('/');
 
-    for _ in 0..14 {
+    for _ in 0..15 {
         lia::tui::handle_key(&mut app, KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).await;
     }
     let (text, _) = screen(&mut app, 80, 24);

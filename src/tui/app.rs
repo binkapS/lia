@@ -899,6 +899,24 @@ impl App {
                 let skills = self.config.discover_skills();
                 self.transcript.push(Line::Notice(skills.summary()));
             }
+            "/new" => {
+                let id = format!("tui-{}", uuid::Uuid::new_v4());
+                if let Some(runner) = self.runner.clone() {
+                    let tx = self.approval_tx.clone();
+                    let id2 = id.clone();
+                    tokio::spawn(async move {
+                        let _ = runner.create_session(&id2).await;
+                        if let Some(tx) = tx {
+                            runner
+                                .set_approver(&id2, Arc::new(TuiApprover { tx }))
+                                .await;
+                        }
+                    });
+                }
+                self.adopt_new_session(id);
+                self.transcript
+                    .push(Line::Notice("a new session is open".into()));
+            }
             "/sessions" => {
                 self.open_sessions();
             }
@@ -1217,6 +1235,40 @@ impl App {
         self.streaming.clear();
         self.popup = Popup::None;
         self.status = format!("session: {title}");
+        self.scroll_to_bottom();
+    }
+
+    /// Create a fresh session, switch to it, and leave the transcript empty.
+    pub async fn create_session(&mut self) {
+        let id = format!("tui-{}", uuid::Uuid::new_v4());
+        if let Some(runner) = self.runner.clone() {
+            let _ = runner.create_session(&id).await;
+            if let Some(tx) = self.approval_tx.clone() {
+                runner
+                    .set_approver(&id, Arc::new(TuiApprover { tx }))
+                    .await;
+            }
+        }
+        self.adopt_new_session(id);
+    }
+
+    /// Another spelling for the same action.
+    pub async fn new_session(&mut self) {
+        self.create_session().await;
+    }
+
+    /// Common tail of session creation, used by both the async path and the
+    /// slash command (which cannot await the runner).
+    fn adopt_new_session(&mut self, id: String) {
+        self.sessions.insert(0, (id.clone(), "New session".to_string()));
+        self.session_index = 0;
+        self.session_id = id;
+        self.transcript.clear();
+        self.current_tools.clear();
+        self.streaming.clear();
+        self.popup = Popup::None;
+        self.status = "session: New session".into();
+        self.follow = true;
         self.scroll_to_bottom();
     }
 

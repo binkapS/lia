@@ -861,6 +861,39 @@ impl SessionRunner {
         true
     }
 
+
+    /// Create a brand-new empty session with the given id, persisting it.
+    /// Returns whether it was actually created (false means it already
+    /// existed).
+    pub async fn create_session(&self, session_id: &str) -> bool {
+        self.create_session_with_source(session_id, "tui").await
+    }
+
+    /// Like `create_session`, but with an explicit origin label.
+    pub async fn create_session_with_source(&self, session_id: &str, source: &str) -> bool {
+        let session = {
+            let mut store = self.sessions.lock().await;
+            if store.get(session_id).is_some() {
+                return false;
+            }
+            let mut session = Session::new(session_id.to_string(), source);
+            session.title = "New session".to_string();
+            store.insert(session.clone());
+            session
+        };
+        // Persist outside the lock is not strictly needed, but keep it simple.
+        let store = self.sessions.lock().await;
+        if let Err(e) = store.persist(&session) {
+            tracing::warn!("could not save the new session '{session_id}': {e}");
+        }
+        true
+    }
+
+    /// Back-compatible name for creating a session.
+    pub async fn new_session(&self, session_id: &str) -> bool {
+        self.create_session(session_id).await
+    }
+
     /// Run a turn for a session, appending the result to its history.
     ///
     /// Returns what the assistant said, so a caller that is not watching

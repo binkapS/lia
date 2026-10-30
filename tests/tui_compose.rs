@@ -127,7 +127,7 @@ fn a_wide_table_is_announced_once() {
     ]);
     let joined = said.join(" ");
     assert!(
-        joined.matches("on your screen").count() == 1,
+        joined.matches("on the console").count() == 1,
         "the table was named twice or never: {joined}"
     );
     assert!(!joined.contains("42"), "the table was recited: {joined}");

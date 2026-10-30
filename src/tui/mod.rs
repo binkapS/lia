@@ -108,6 +108,7 @@ pub async fn handle_key(app: &mut App, key: KeyEvent) -> bool {
             KeyCode::Esc => app.dismiss_popup(),
             KeyCode::Up => app.move_session_selection(-1),
             KeyCode::Down => app.move_session_selection(1),
+            KeyCode::Char('n') | KeyCode::Char('N') => app.create_session().await,
             KeyCode::Enter => app.switch_session().await,
             _ => {}
         }
