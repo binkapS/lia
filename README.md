@@ -5,6 +5,10 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](docs/licence.md)
 ![Rust 2024](https://img.shields.io/badge/rust-2024-orange.svg)
 
+## Preview
+
+![The web interface](docs/assets/preview.png)
+
 ## Why lia
 
 - **Local-first.** Conversations, memory and skills live on your disk. You choose the model, including local ones through Ollama.
@@ -16,16 +20,16 @@
 
 ## Features
 
-| Area | What you get |
-| --- | --- |
-| Coding | File reading and editing, sandboxed command execution, plans ticked off as work proceeds |
-| Memory | Saved sessions, daily notes consolidated into durable facts, each tagged with its source |
-| Skills | Written procedures loaded on demand (security audit, release checklist, incident triage, ...) |
-| Multimodal | Pictures in, voice in and out |
-| Web | Search and page reading |
-| Automation | Scheduled work: "check the build every half hour", answered in the chat that asked |
-| Delegation | Heavy jobs handed to a sub-assistant so the conversation stays clean |
-| Providers | Anthropic, OpenAI-compatible, Ollama, with retry and fallback |
+| Area       | What you get                                                                                  |
+| ---------- | --------------------------------------------------------------------------------------------- |
+| Coding     | File reading and editing, sandboxed command execution, plans ticked off as work proceeds      |
+| Memory     | Saved sessions, daily notes consolidated into durable facts, each tagged with its source      |
+| Skills     | Written procedures loaded on demand (security audit, release checklist, incident triage, ...) |
+| Multimodal | Pictures in, voice in and out                                                                 |
+| Web        | Search and page reading                                                                       |
+| Automation | Scheduled work: "check the build every half hour", answered in the chat that asked            |
+| Delegation | Heavy jobs handed to a sub-assistant so the conversation stays clean                          |
+| Providers  | Anthropic, OpenAI-compatible, Ollama, with retry and fallback                                 |
 
 ## Quick start
 
