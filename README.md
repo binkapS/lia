@@ -34,10 +34,23 @@
 ## Quick start
 
 ```sh
-git clone <this repository>
+git clone https://github.com/binkapS/lia.git
 cd lia
+./install.sh
+lia --help
+```
+
+The script builds the web assets (needs Node.js and npm) and installs the binary with Cargo. Options:
+
+- `--build-only` builds `./target/release/lia` without installing.
+- `--skip-web` skips the Node.js step.
+
+Or do it manually:
+
+```sh
+npm install && npm run build:web
 cargo build --release
-cargo run -- --help
+./target/release/lia --help
 ```
 
 Copy [lia.example.toml](lia.example.toml) as a starting configuration, then follow [Install](docs/install.md) and [Configure](docs/configure.md).
