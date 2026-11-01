@@ -6,9 +6,16 @@
 //! Only chats listed in `allowed_chats` may talk to the assistant, and an
 //! empty allow-list means nobody can — an open bot would let anyone on the
 //! internet run commands on this machine.
+//!
+//! Delivery, the way the gateway treats it: the moment a message arrives the
+//! bot starts showing "typing…", so the sender knows it was received, and a
+//! reply that the API refuses is retried with backoff instead of being
+//! dropped. A turn that cannot send after all the retries is logged loudly,
+//! the way a reply that never arrives should be.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -23,8 +30,31 @@ use super::{
 /// The Telegram API root.
 const API: &str = "https://api.telegram.org";
 
-/// Long-poll timeout in seconds.
+/// Long-poll timeout in seconds. The request waits this long on the server.
 const POLL_TIMEOUT: u64 = 30;
+
+/// Every request gets an overall timeout above the long-poll wait, so a
+/// stalled connection cannot hang the channel for good.
+const HTTP_TIMEOUT: Duration = Duration::from_secs(40);
+
+/// How many times a send is retried before the reply is given up on.
+const SEND_RETRIES: usize = 3;
+
+/// How long between the retries: the fifth, sixth, seventh attempt of a
+/// refused reply come minutes apart, not seconds apart.
+const RETRY_BACKOFF: [Duration; SEND_RETRIES] = [
+    Duration::from_secs(2),
+    Duration::from_secs(8),
+    Duration::from_secs(30),
+];
+
+/// How often the typing indicator is refreshed, in seconds. The platform
+/// forgets the indicator after about five.
+const TYPING_REFRESH: Duration = Duration::from_secs(4);
+
+/// How long a typing indicator may run before it is stopped on its own,
+/// even if the reply is still working.
+const TYPING_CAP: Duration = Duration::from_secs(15 * 60);
 
 /// A chat the bot is allowed to respond in.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -127,13 +157,16 @@ impl TelegramUser {
 }
 
 /// An update from the Telegram API.
+///
+/// An edited message arrives as `edited_message`; it is neither parsed nor
+/// parsed out of the loop: an edit re-reads as a mention of an old
+/// conversation, and the assistant answers what was said, not what was
+/// corrected after the fact.
 #[derive(Debug, Clone, Deserialize)]
 struct Update {
     update_id: i64,
     #[serde(default)]
     message: Option<TelegramMessage>,
-    #[serde(default)]
-    edited_message: Option<TelegramMessage>,
 }
 
 /// The response wrapper the Telegram API returns.
@@ -155,6 +188,9 @@ pub struct TelegramChannel {
     shutdown: tokio::sync::Notify,
     /// Where the people who have been let in are kept.
     pairing: Option<Arc<PairingStore>>,
+    /// The typing-indicator task of each chat, so a chat only ever has one
+    /// running and a reply can stop it before the reply goes out.
+    typing: Arc<tokio::sync::Mutex<HashMap<i64, tokio::task::AbortHandle>>>,
 }
 
 impl TelegramChannel {
@@ -163,12 +199,21 @@ impl TelegramChannel {
     /// `allowed` lists the chats that may talk to the assistant. An empty list
     /// means nobody can.
     pub fn new(token: impl Into<String>, allowed: Vec<AllowedChat>) -> Self {
+        // A timeout on every request keeps a stalled connection from
+        // hanging the channel for good; the long poll is shorter than the
+        // timeout, so the timeout only ever bites on a dead connection.
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(HTTP_TIMEOUT)
+            .build()
+            .unwrap_or_default();
         TelegramChannel {
             token: token.into(),
             allowed: allowed.into_iter().collect(),
-            client: reqwest::Client::new(),
+            client,
             shutdown: tokio::sync::Notify::new(),
             pairing: None,
+            typing: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
 
@@ -249,21 +294,97 @@ impl TelegramChannel {
         }
     }
 
+    /// Call a Bot API method, retrying the ones that deserve it.
+    ///
+    /// A network error, a too-many-requests answer or a server on the edge
+    /// are temporary; the message is sent again after a pause rather than
+    /// being lost. A refused request carries its own delay when Telegram
+    /// asks for one. Anything else — an expired token, an unknown chat —
+    /// fails at once.
     async fn call<T>(&self, method: &str, body: &Value) -> anyhow::Result<Option<T>>
     where
         T: for<'de> Deserialize<'de> + Default,
     {
         let url = format!("{API}/bot{}/{}", self.token, method);
-        let response = self.client.post(&url).json(body).send().await?;
-        let parsed: ApiResponse<T> = response.json().await?;
-        if !parsed.ok {
-            let description = parsed
-                .description
-                .unwrap_or_else(|| "unknown error".to_string());
-            tracing::warn!("telegram {method} failed: {description}");
-            return Ok(None);
+        let mut last_error: Option<String> = None;
+        // A pause the server asked for carries over to the next attempt.
+        let mut waiting: Option<Duration> = None;
+
+        for attempt in 0..=SEND_RETRIES {
+            let pause = waiting.take().unwrap_or_else(|| {
+                if attempt > 0 {
+                    RETRY_BACKOFF[attempt.min(SEND_RETRIES) - 1]
+                } else {
+                    Duration::ZERO
+                }
+            });
+            if attempt > 0 {
+                tracing::debug!("telegram {method}: retry {attempt} in {}s", pause.as_secs());
+                tokio::time::sleep(pause).await;
+            }
+
+            let response = match self.client.post(&url).json(body).send().await {
+                Ok(response) => response,
+                Err(e) => {
+                    last_error = Some(format!("could not reach telegram: {e}"));
+                    continue;
+                }
+            };
+
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            if status.is_success() {
+                let parsed: ApiResponse<T> = serde_json::from_str(&text).map_err(|e| {
+                    anyhow::anyhow!("could not read the telegram response: {e}")
+                })?;
+                if parsed.ok {
+                    return Ok(parsed.result);
+                }
+                // The API answered cleanly with a refusal.
+                let description =
+                    parsed.description.unwrap_or_else(|| "unknown error".to_string());
+                return Err(anyhow::anyhow!("telegram {method} failed: {description}"));
+            }
+
+            let description = serde_json::from_str::<Value>(&text)
+                .ok()
+                .and_then(|body| {
+                    body.get("description")
+                        .and_then(|d| d.as_str())
+                        .map(String::from)
+                })
+                .unwrap_or_else(|| format!("HTTP {status}"));
+
+            // Too many requests carries the wait in parameters.retry_after.
+            let retry_after = serde_json::from_str::<Value>(&text)
+                .ok()
+                .and_then(|body| {
+                    body.get("parameters")
+                        .and_then(|p| p.get("retry_after"))
+                        .and_then(|r| r.as_u64())
+                });
+            let rate_limited = status.as_u16() == 429 || retry_after.is_some();
+            let server_fumbled = status.is_server_error();
+
+            if rate_limited || server_fumbled {
+                let pause = retry_after
+                    .map(Duration::from_secs)
+                    .unwrap_or_else(|| RETRY_BACKOFF[attempt.min(SEND_RETRIES - 1)]);
+                tracing::warn!("telegram {method} failed ({status}): {description}; retrying");
+                last_error = Some(format!("{description} (HTTP {status})"));
+                waiting = Some(pause);
+                continue;
+            }
+
+            return Err(anyhow::anyhow!(
+                "telegram {method} failed ({status}): {description}"
+            ));
         }
-        Ok(parsed.result)
+
+        Err(anyhow::anyhow!(
+            "telegram {method} did not go through after {SEND_RETRIES} retries: {}",
+            last_error.unwrap_or_else(|| "unknown error".to_string())
+        ))
     }
 
     /// Fetch a picture the platform sent.
@@ -289,8 +410,56 @@ impl TelegramChannel {
         crate::image::Image::from_bytes(&bytes, media_type).ok()
     }
 
+    /// Show "typing…" in a chat, refreshed while the turn works.
+    ///
+    /// Nothing tells the sender a message arrived or is being worked on, so
+    /// a turn that runs a tool leaves the chat silent and the message looks
+    /// like it was never received. One refresher per chat replaces itself
+    /// when a second message lands in the same chat, and is stopped the
+    /// moment a reply is sent there.
+    async fn start_typing(&self, chat_id: i64) {
+        let mut typing = self.typing.lock().await;
+        if let Some(handle) = typing.remove(&chat_id) {
+            handle.abort();
+        }
+
+        // A task of its own: its outgoing requests must not wait behind the
+        // turn the reply is working on.
+        let client = self.client.clone();
+        let token = self.token.clone();
+        let task = tokio::spawn(async move {
+            let started = tokio::time::Instant::now();
+            loop {
+                let url = format!("{API}/bot{token}/sendChatAction");
+                let _ = client
+                    .post(&url)
+                    .json(&json!({ "chat_id": chat_id, "action": "typing" }))
+                    .send()
+                    .await;
+                if started.elapsed() >= TYPING_CAP {
+                    break;
+                }
+                tokio::time::sleep(TYPING_REFRESH).await;
+            }
+            // The cap, not a cancellation, ended this task. The stale entry
+            // is harmless — the next message in this chat replaces it — and
+            // one entry per chat ever known does not grow.
+        });
+        typing.insert(chat_id, task.abort_handle());
+    }
+
+    /// Stop showing "typing…" in a chat, before the reply replaces it.
+    async fn stop_typing(&self, chat_id: i64) {
+        if let Some(handle) = self.typing.lock().await.remove(&chat_id) {
+            handle.abort();
+        }
+    }
+
     /// Send a message to a chat.
     pub async fn send_to_chat(&self, chat_id: i64, text: &str) -> anyhow::Result<()> {
+        // The indicator has said its piece; the reply is on its way.
+        self.stop_typing(chat_id).await;
+
         // Telegram rejects messages over 4096 characters.
         for chunk in split_message(text, 4000) {
             self.call::<Value>(
@@ -352,10 +521,14 @@ impl Channel for TelegramChannel {
                             "telegram getUpdates failed: {}",
                             parsed.description.unwrap_or_default()
                         );
+                        // Hit the wait out before asking again, so a
+                        // fumbling server is not hammered.
+                        tokio::time::sleep(Duration::from_secs(1)).await;
                         Vec::new()
                     }
                     Err(e) => {
                         tracing::warn!("could not read telegram response: {e}");
+                        tokio::time::sleep(Duration::from_secs(1)).await;
                         Vec::new()
                     }
                 },
@@ -369,9 +542,11 @@ impl Channel for TelegramChannel {
             for update in updates {
                 offset = Some(update.update_id + 1);
 
-                let message = match update.message.or(update.edited_message) {
-                    Some(m) => m,
-                    None => continue,
+                // An edit re-reads as a mention of an old conversation; the
+                // assistant answers what was said, not what was corrected
+                // after the fact.
+                let Some(message) = update.message else {
+                    continue;
                 };
 
                 let text = message
@@ -420,6 +595,10 @@ impl Channel for TelegramChannel {
                     }
                     continue;
                 }
+
+                // The message was accepted: the sender sees "typing…"
+                // instead of silence while the reply is worked on.
+                self.start_typing(message.chat.id).await;
 
                 // Handle control commands before handing off to the agent.
                 // A reset is answered by the dispatcher, which is what owns

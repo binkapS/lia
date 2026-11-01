@@ -96,33 +96,8 @@ impl ChannelKind {
             ],
             ChannelKind::WhatsApp => &[
                 Field {
-                    key: "WHATSAPP_TOKEN",
-                    label: "access token",
-                    secret: true,
-                },
-                Field {
-                    key: "WHATSAPP_PHONE_NUMBER_ID",
-                    label: "phone number id",
-                    secret: false,
-                },
-                Field {
-                    key: "WHATSAPP_VERIFY_TOKEN",
-                    label: "webhook verify token",
-                    secret: true,
-                },
-                Field {
-                    key: "WHATSAPP_APP_SECRET",
-                    label: "app secret (for webhook signatures)",
-                    secret: true,
-                },
-                Field {
                     key: "WHATSAPP_ALLOWED_NUMBERS",
-                    label: "allowed numbers (comma separated, with country code)",
-                    secret: false,
-                },
-                Field {
-                    key: "WHATSAPP_WEBHOOK_PORT",
-                    label: "webhook port [8788]",
+                    label: "allowed numbers (optional, comma separated, with country code)",
                     secret: false,
                 },
             ],
@@ -148,14 +123,7 @@ const KNOWN: &[(&str, &str)] = &[
     ("SLACK_BOT_TOKEN", "Slack bot token"),
     ("SLACK_ALLOWED_CHANNELS", "Slack allowed channels"),
     ("SLACK_ALLOWED_USERS", "Slack allowed users"),
-    ("WHATSAPP_TOKEN", "WhatsApp access token"),
-    ("WHATSAPP_PHONE_NUMBER_ID", "WhatsApp phone number id"),
-    ("WHATSAPP_VERIFY_TOKEN", "WhatsApp webhook verify token"),
-    ("WHATSAPP_APP_SECRET", "WhatsApp app secret"),
     ("WHATSAPP_ALLOWED_NUMBERS", "WhatsApp allowed numbers"),
-    ("WHATSAPP_WEBHOOK_HOST", "WhatsApp webhook host"),
-    ("WHATSAPP_WEBHOOK_PORT", "WhatsApp webhook port"),
-    ("WHATSAPP_API_ROOT", "WhatsApp API root"),
 ];
 
 /// Run `lia setup`.
@@ -291,11 +259,8 @@ fn wizard(config: &Config, path: &Path, mut secrets: Secrets) -> Result<()> {
             ask_field(&mut secrets, *field)?;
         }
         if channel == ChannelKind::WhatsApp {
-            println!(
-                "    the webhook is served at http://{}/webhooks/whatsapp",
-                webhook_address(&secrets)
-            );
-            println!("    expose it to Meta over HTTPS, for example with a tunnel");
+            println!("    the first start shows a qr code to scan from the phone;");
+            println!("    the pairing is kept in the state directory afterwards");
         }
     }
 
@@ -420,15 +385,6 @@ pub fn parse_channels(text: &str) -> Result<Vec<ChannelKind>> {
         }
     }
     Ok(channels)
-}
-
-/// The webhook address the settings describe.
-fn webhook_address(secrets: &Secrets) -> String {
-    let port = secrets
-        .get("WHATSAPP_WEBHOOK_PORT")
-        .and_then(|port| port.trim().parse::<u16>().ok())
-        .unwrap_or(8788);
-    format!("127.0.0.1:{port}")
 }
 
 /// Ask for a line, without hiding it.

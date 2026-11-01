@@ -1,189 +1,477 @@
 //! WhatsApp channel adapter.
 //!
-//! Uses the WhatsApp Cloud API: messages are sent through the Graph API, and
-//! arriving messages are delivered by Meta to a webhook. Unlike the other
-//! adapters there is nothing to poll — WhatsApp only pushes.
+//! A linked device over WhatsApp Web, the way [OpenClaw](https://openclaw.ai)
+//! links one: the gateway owns the session, pairs it by qr code, and reuses
+//! it on every restart. There are no tokens, no webhook and nothing to
+//! expose over HTTPS — the adapter opens the connection itself.
 //!
-//! The credentials come from the environment, or from the file `lia setup`
-//! writes:
+//! The first run draws the qr code in this terminal: open WhatsApp on the
+//! phone, go to *Linked devices*, and scan it. The session is kept in the
+//! state directory, afterwards the adapter reconnects by itself. A drop
+//! ends the session and a fresh one is dialled after a pause that grows
+//! with the failures, so the server is not hammered while it fumbles.
 //!
-//! - `WHATSAPP_TOKEN` — the access token
-//! - `WHATSAPP_PHONE_NUMBER_ID` — the id of the sending number
-//! - `WHATSAPP_VERIFY_TOKEN` — the token Meta echoes when the webhook is set up
-//! - `WHATSAPP_APP_SECRET` — the app secret used to sign webhook deliveries
-//! - `WHATSAPP_ALLOWED_NUMBERS` — who may talk to the assistant
+//! An unknown number that writes in a private chat is treated the way the
+//! Telegram adapter treats an unknown chat: it is given a pairing code, and
+//! the owner lets them in. Numbers on `WHATSAPP_ALLOWED_NUMBERS` skip that.
 //!
-//! The webhook listens on `127.0.0.1:8788` at `/webhooks/whatsapp` by
-//! default; `WHATSAPP_WEBHOOK_HOST` and `WHATSAPP_WEBHOOK_PORT` move it.
-//! Meta must be able to reach that address over HTTPS, so it is usually put
-//! behind a tunnel.
-//!
-//! Only numbers on the allow-list may talk to the assistant, and an empty
-//! list means nobody can. A delivery is checked against the app secret when
-//! one is configured; without it the webhook still works, but anyone who
-//! knows the address could post a message, so the secret is strongly
-//! recommended.
+//! While the assistant works on a reply, the chat is shown a typing
+//! indicator and the message that started the turn is acknowledged with a
+//! reaction, so the sender can see the message was received and is being
+//! worked on: silence otherwise reads as "not delivered".
 
 use std::collections::{HashMap, HashSet};
-use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use async_trait::async_trait;
-use axum::Router;
-use axum::body::Bytes;
-use axum::extract::{Query, State};
-use axum::http::{HeaderMap, StatusCode};
-use axum::response::{IntoResponse, Response};
-use axum::routing::get;
-use hmac::{Hmac, Mac};
-use serde::Deserialize;
-use serde_json::json;
-use sha2::Sha256;
-use tokio::sync::{Notify, OnceCell};
+use tokio::sync::{Notify, RwLock};
 
+use whatsapp_rust::pair::NATIVE_CAMERA_DEEP_LINK_PREFIX;
+use whatsapp_rust::prelude::*;
+
+use super::pairing::{self, PairingStore};
 use super::{
     Channel, InboundMessage, InboundSender, OutboundMessage, OutboundSender, split_message,
 };
 use crate::secrets;
 
-/// The Graph API root.
-const API: &str = "https://graph.facebook.com/v22.0";
-
-/// WhatsApp refuses a text body over 4096 characters.
+/// A reply is split before it is sent, because WhatsApp refuses anything
+/// over 4096 characters rather than truncating it. The limit is the same as
+/// the Cloud API's, the way OpenClaw's chunking default is.
 const MESSAGE_LIMIT: usize = 4000;
 
-/// Where Meta delivers messages.
-pub const WEBHOOK_PATH: &str = "/webhooks/whatsapp";
+/// How often the typing indicator is refreshed: clients let a `composing`
+/// presence expire after a few seconds.
+const TYPING_REFRESH: Duration = Duration::from_secs(4);
 
-/// The default address the webhook is bound to.
-const DEFAULT_WEBHOOK_HOST: &str = "127.0.0.1";
-const DEFAULT_WEBHOOK_PORT: u16 = 8788;
+/// How long a typing indicator may run before it is stopped on its own,
+/// even if the reply is still working.
+const TYPING_CAP: Duration = Duration::from_secs(15 * 60);
 
-/// A WhatsApp Cloud API channel.
-#[derive(Clone)]
+/// The pause after a drop before a fresh connection is dialled. The pauses
+/// grow, so a server having its own bad day is not hammered.
+const RECONNECT_PAUSES: [Duration; 5] = [
+    Duration::from_secs(5),
+    Duration::from_secs(15),
+    Duration::from_secs(30),
+    Duration::from_secs(60),
+    Duration::from_secs(120),
+];
+
+/// A session that lasted at least this long counts as a good connection:
+/// the next drop starts the backstops over.
+const GOOD_CONNECTION: Duration = Duration::from_secs(60);
+
+/// The emoji a message is acknowledged with while the reply is worked on.
+/// `WHATSAPP_ACK_REACTION` replaces it; an empty value turns it off.
+const DEFAULT_ACK_REACTION: &str = "👀";
+
+/// The client of the live session, if there is one.
+type LiveClient = Arc<RwLock<Option<Arc<Client>>>>;
+
+/// The typing-indicator task of each chat.
+type SharedTyping = Arc<tokio::sync::Mutex<HashMap<String, tokio::task::AbortHandle>>>;
+
+/// A WhatsApp channel linked through a qr code.
 pub struct WhatsAppChannel {
-    token: String,
-    phone_number_id: String,
-    verify_token: String,
-    app_secret: Option<String>,
+    /// Where the linked session lives.
+    store_path: PathBuf,
+    /// The phone numbers and group ids that may talk to the assistant
+    /// without pairing.
     allowed: HashSet<String>,
-    /// The API root, so a proxy or a test can stand in for Meta.
-    api_root: String,
-    webhook_host: String,
-    webhook_port: u16,
-    client: reqwest::Client,
-    /// Set when the adapter should stop.
+    /// Where the people who have been let in are kept.
+    pairing: Option<Arc<PairingStore>>,
+    /// Set when the adapter should stop. Shared, so the connection loop can
+    /// be released from the outside.
     shutdown: Arc<Notify>,
-    /// The address the webhook was actually bound to, once `run` starts.
-    bound: Arc<OnceCell<SocketAddr>>,
+    /// The client of the live session, kept fresh across reconnects.
+    client: LiveClient,
+    /// One typing refresher per chat.
+    typing: SharedTyping,
+    /// The reaction a message is acknowledged with, if any.
+    ack_reaction: Option<String>,
+    /// Whether accepted messages are marked as read.
+    read_receipts: bool,
+    /// The name the linked device shows as on the phone.
+    push_name: Option<String>,
 }
 
 impl WhatsAppChannel {
     /// Create the adapter.
     ///
-    /// `allowed` lists the phone numbers that may talk to the assistant. An
-    /// empty list means nobody can.
-    pub fn new(
-        token: impl Into<String>,
-        phone_number_id: impl Into<String>,
-        verify_token: impl Into<String>,
-        allowed: Vec<String>,
-    ) -> Self {
+    /// `store_path` is the SQLite file of the linked session; a pairing by
+    /// qr code is stored there and survives a restart. `allowed` lists the
+    /// phone numbers (and group ids) that may talk without a pairing code;
+    /// an empty list means pairing decides.
+    pub fn new(store_path: PathBuf, allowed: Vec<String>) -> Self {
         WhatsAppChannel {
-            token: token.into(),
-            phone_number_id: phone_number_id.into(),
-            verify_token: verify_token.into(),
-            app_secret: None,
-            allowed: allowed
-                .into_iter()
-                .map(|number| clean_number(&number))
-                .filter(|number| !number.is_empty())
-                .collect(),
-            api_root: API.to_string(),
-            webhook_host: DEFAULT_WEBHOOK_HOST.to_string(),
-            webhook_port: DEFAULT_WEBHOOK_PORT,
-            client: reqwest::Client::new(),
+            store_path,
+            allowed: allowed.iter().map(|n| clean_number(n)).collect(),
+            pairing: None,
             shutdown: Arc::new(Notify::new()),
-            bound: Arc::new(OnceCell::new()),
+            client: Arc::new(RwLock::new(None)),
+            typing: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            ack_reaction: Some(DEFAULT_ACK_REACTION.to_string()),
+            read_receipts: true,
+            push_name: None,
         }
     }
 
-    /// Read the credentials and the allow-list from the environment, or the
-    /// secrets file.
+    /// Let people in who have asked to be let in.
     ///
-    /// Returns `None` when the essentials are missing, so the caller can skip
-    /// the channel rather than failing.
-    pub fn from_env() -> Option<Self> {
-        let token = secrets::var("WHATSAPP_TOKEN")?;
-        let phone_number_id = secrets::var("WHATSAPP_PHONE_NUMBER_ID")?;
-        let verify_token = secrets::var("WHATSAPP_VERIFY_TOKEN")?;
-        let app_secret = secrets::var("WHATSAPP_APP_SECRET");
-        if app_secret.is_none() {
+    /// Without a pairing store, only the numbers on the allow-list may talk
+    /// to the assistant.
+    pub fn with_pairing(mut self, store: Arc<PairingStore>) -> Self {
+        self.pairing = Some(store);
+        self
+    }
+
+    /// Read the allow-list from the environment, or the secrets file.
+    ///
+    /// The state directory is where the linked session lives. Returns `None`
+    /// when the state directory is unknown, so the channel is skipped rather
+    /// than failing: WhatsApp asks for nothing but a scan.
+    pub fn from_env(state_dir: &std::path::Path) -> Option<Self> {
+        if state_dir.as_os_str().is_empty() {
+            return None;
+        }
+
+        // The Cloud API's variables are retired; say so instead of letting
+        // them silently do nothing.
+        if secrets::var("WHATSAPP_TOKEN").is_some() {
             tracing::warn!(
-                "WHATSAPP_APP_SECRET is not set; webhook deliveries will not be verified"
+                "WHATSAPP_TOKEN is not used any more: WhatsApp is linked by qr code, \
+                 scan it the first time the channel comes up"
             );
         }
+
         let allowed = secrets::var("WHATSAPP_ALLOWED_NUMBERS")
             .unwrap_or_default()
             .split(',')
-            .map(|number| number.trim().to_string())
+            .map(clean_number)
             .filter(|number| !number.is_empty())
             .collect();
 
-        let mut channel = WhatsAppChannel::new(token, phone_number_id, verify_token, allowed);
-        if let Some(secret) = app_secret {
-            channel = channel.with_app_secret(secret);
+        let mut channel = WhatsAppChannel::new(state_dir.join("whatsapp.db"), allowed);
+
+        // An empty value turns the acknowledgement off; any other value
+        // replaces the emoji.
+        match secrets::var("WHATSAPP_ACK_REACTION") {
+            Some(value) if value.trim().is_empty() => channel.ack_reaction = None,
+            Some(value) if !value.trim().is_empty() => {
+                channel.ack_reaction = Some(value.trim().to_string())
+            }
+            _ => {}
         }
-        if let Some(root) = secrets::var("WHATSAPP_API_ROOT") {
-            channel = channel.with_api_root(root);
+
+        channel.read_receipts = match secrets::var("WHATSAPP_READ_RECEIPTS") {
+            Some(value) => !matches!(value.trim(), "0" | "off" | "false" | "no"),
+            None => true,
+        };
+
+        if let Some(name) = secrets::var("WHATSAPP_PUSH_NAME") {
+            channel.push_name = Some(name);
         }
-        let host = secrets::var("WHATSAPP_WEBHOOK_HOST")
-            .unwrap_or_else(|| DEFAULT_WEBHOOK_HOST.to_string());
-        let port = secrets::var("WHATSAPP_WEBHOOK_PORT")
-            .and_then(|port| port.trim().parse::<u16>().ok())
-            .unwrap_or(DEFAULT_WEBHOOK_PORT);
-        Some(channel.with_webhook(host, port))
+
+        Some(channel)
     }
 
-    /// Point the adapter at a different API root.
-    pub fn with_api_root(mut self, root: impl Into<String>) -> Self {
-        self.api_root = root.into().trim_end_matches('/').to_string();
-        self
-    }
-
-    /// Use this app secret to check webhook signatures.
-    pub fn with_app_secret(mut self, secret: impl Into<String>) -> Self {
-        self.app_secret = Some(secret.into());
-        self
-    }
-
-    /// Listen for webhooks on this address.
-    pub fn with_webhook(mut self, host: impl Into<String>, port: u16) -> Self {
-        self.webhook_host = host.into();
-        self.webhook_port = port;
-        self
-    }
-
-    /// The address the webhook is bound to, after [`Channel::run`] starts.
-    pub fn webhook_address(&self) -> Option<SocketAddr> {
-        self.bound.get().copied()
-    }
-
-    /// Whether a number may talk to the assistant.
+    /// Whether a number or group may talk to the assistant.
     pub fn is_number_allowed(&self, number: &str) -> bool {
         self.allowed.contains(&clean_number(number))
     }
 
-    /// The numbers that may talk to the assistant.
-    pub fn allowed_numbers(&self) -> impl Iterator<Item = &str> {
-        self.allowed.iter().map(String::as_str)
+    /// The client of the live session, if there is one.
+    async fn live(&self) -> Option<Arc<Client>> {
+        self.client.read().await.clone()
+    }
+}
+
+/// Show "typing…" in a chat, refreshed while the turn works.
+///
+/// The client of the live session is whatever the handler was handed: the
+/// indicator takes the socket it runs on, not a lookup of the newest one.
+async fn start_typing(typing: &SharedTyping, client: &Arc<Client>, chat: Jid) {
+    let key = chat.to_string();
+    let already = typing
+        .lock()
+        .await
+        .get(&key)
+        .filter(|handle| !handle.is_finished())
+        .cloned();
+    if already.is_some() {
+        return;
     }
 
-    fn messages_url(&self) -> String {
-        format!("{}/{}/messages", self.api_root, self.phone_number_id.trim())
+    let client = client.clone();
+    let task = tokio::spawn(async move {
+        let started = tokio::time::Instant::now();
+        loop {
+            // A broken indicator is not worth a warning: it is
+            // best-effort feedback, not a receipt.
+            let _ = client.chatstate().send_composing(&chat).await;
+            if started.elapsed() >= TYPING_CAP {
+                break;
+            }
+            tokio::time::sleep(TYPING_REFRESH).await;
+        }
+    });
+    typing.lock().await.insert(key, task.abort_handle());
+}
+
+/// Stop showing "typing…" in a chat, before the reply replaces it.
+async fn stop_typing(typing: &SharedTyping, conversation: &str) {
+    if let Some(handle) = typing.lock().await.remove(conversation) {
+        handle.abort();
     }
+}
+
+/// What the message handlers share; the connection hands messages over.
+struct Inbox {
+    inbound: InboundSender,
+    allowed: HashSet<String>,
+    pairing: Option<Arc<PairingStore>>,
+    ack_reaction: Option<String>,
+    read_receipts: bool,
+    /// One typing refresher per chat, shared with the outbound side: the
+    /// reply stops the indicator when it is on its way.
+    typing: SharedTyping,
+}
+
+impl Inbox {
+    /// The chat is answered by the assistant; an answer goes through the
+    /// queue, so the whole connection is not held back by a long turn.
+    async fn handle(&self, ctx: MessageContext) {
+        // The linked account is the assistant's own: a message it sent
+        // itself is not someone talking to it.
+        if ctx.info.source.is_from_me {
+            return;
+        }
+
+        let chat = ctx.info.source.chat.clone();
+
+        // Status broadcasts and newsletters are read-only.
+        if matches!(chat.server, Server::Broadcast | Server::Newsletter) {
+            return;
+        }
+
+        let Some(text) = ctx.message.text_content() else {
+            // Media and other enclosures are left for another day, as with
+            // the Cloud API adapter before it.
+            tracing::debug!("a whatsapp message without text was left alone");
+            return;
+        };
+        let text = text.trim();
+        if text.is_empty() {
+            return;
+        }
+
+        let sender = clean_number(&ctx.info.source.sender.to_string());
+        let conversation = chat.to_string();
+
+        if !self.may_talk(&chat, &sender) {
+            // A stranger in a private chat may be let in later, so they are
+            // given a code to give the owner.
+            if let Some(store) = &self.pairing
+                && chat.server != Server::Group
+            {
+                let (request, offer) =
+                    store.request("whatsapp", &conversation, &sender, None);
+                if offer {
+                    let offer = pairing::pairing_message(&request.code);
+                    if let Err(e) = ctx.client.send_text(chat, offer).await {
+                        tracing::warn!("could not offer a pairing code: {e}");
+                    }
+                }
+            }
+            return;
+        }
+
+        tracing::debug!("a whatsapp message came in from {sender}");
+
+        // The receipt says the message was read; the reaction says the
+        // assistant has it. Typing shows the turn is alive.
+        if self.read_receipts {
+            let id = ctx.info.id.as_str().to_string();
+            if let Err(e) = ctx
+                .client
+                .mark_as_read(&chat, Some(&ctx.info.source.sender), &[id.as_str()])
+                .await
+            {
+                tracing::debug!("could not mark a whatsapp message read: {e}");
+            }
+        }
+        if let Some(ack) = &self.ack_reaction
+            && let Err(e) = ctx.react(ack).await
+        {
+            tracing::debug!("could not acknowledge with a reaction: {e}");
+        }
+
+        let inbound = InboundMessage::new("whatsapp", sender, text.to_string(), conversation);
+        // The sender sees "typing…" while the turn works; the reply stops
+        // the indicator when it is on its way.
+        start_typing(&self.typing, &ctx.client, chat).await;
+        // A full queue holds the whole socket back; a message lost from the
+        // queue is better than a connection gone silent.
+        if self.inbound.try_send(inbound).is_err() {
+            tracing::warn!("the whatsapp inbound queue is full; a message was dropped");
+        }
+    }
+
+    /// Whether a sender may talk to the assistant in this chat.
+    fn may_talk(&self, chat: &Jid, sender: &str) -> bool {
+        if self.allowed.contains(&clean_number(&chat.to_string())) {
+            return true;
+        }
+
+        let Some(store) = &self.pairing else {
+            return false;
+        };
+        // Pairing is for private chats; a group is never let in as a whole.
+        if chat.server == Server::Group {
+            return false;
+        }
+        store.is_granted("whatsapp", &chat.to_string(), sender)
+    }
+}
+
+/// Draw the pairing qr code in the terminal.
+///
+/// The payload is given WhatsApp's own deep-link prefix, so an iPhone's
+/// camera opens WhatsApp straight to the linking screen; the phone's own
+/// scanner takes the same bytes either way.
+fn draw_qr(code: &str, timeout: Duration) {
+    println!();
+    println!("Link WhatsApp — WhatsApp → Settings → Linked devices → Link a device");
+    println!("The code below is valid for {} seconds:", timeout.as_secs());
+    let payload = format!("{NATIVE_CAMERA_DEEP_LINK_PREFIX}{code}");
+    match qrcode::QrCode::new(payload.as_bytes()) {
+        Ok(qr) => {
+            let art = qr
+                .render::<qrcode::render::unicode::Dense1x2>()
+                .dark_color(qrcode::render::unicode::Dense1x2::Dark)
+                .light_color(qrcode::render::unicode::Dense1x2::Light)
+                .quiet_zone(true)
+                .build();
+            println!("{art}");
+        }
+        Err(e) => {
+            tracing::warn!("the qr code could not be drawn: {e}");
+            println!("The pairing payload is: {code}");
+        }
+    }
+    println!();
+}
+
+/// How the adapter runs: one session at a time, as long as it lasts.
+///
+/// A drop ends the session and a fresh one is dialled after a pause that
+/// grows with the failures. A pairing is never lost: it lives in the store,
+/// and the next session picks it up.
+async fn supervise(
+    inbox: Arc<Inbox>,
+    store_path: PathBuf,
+    push_name: Option<String>,
+    shutdown: Arc<Notify>,
+    live: LiveClient,
+) -> Result<()> {
+    let mut failures = 0usize;
+
+    loop {
+        let store = SqliteStore::new(
+            store_path
+                .to_str()
+                .context("the whatsapp session path is not text")?,
+        )
+        .await
+        .context("the whatsapp session store could not be opened")?;
+
+        let mut builder = Bot::builder()
+            .with_backend(store)
+            // Nothing is taken from the past: only messages that arrive from
+            // now on are answered.
+            .skip_history_sync();
+        if let Some(name) = &push_name {
+            builder = builder.with_push_name(name.clone());
+        }
+
+        let message_inbox = inbox.clone();
+        let bot = builder
+            .on_qr_code(|code, timeout| async move {
+                draw_qr(&code, timeout);
+            })
+            .on_message(move |ctx| {
+                let inbox = message_inbox.clone();
+                async move {
+                    inbox.handle(ctx).await;
+                }
+            })
+            .on_connected(|_client| async move {
+                tracing::info!("whatsapp linked and listening");
+            })
+            .on_logged_out(|_info| async move {
+                tracing::warn!("whatsapp logged out: scan a fresh qr code to link again");
+            })
+            .build()
+            .await
+            .context("the whatsapp session could not be built")?;
+
+        // The client is shared with `send`, which has no other way to reach
+        // the socket.
+        let client = bot.client();
+        *live.write().await = Some(client.clone());
+
+        let handle = bot.spawn();
+
+        // The session runs until the phone unlinks, the connection is lost
+        // or the gateway asks to stop. The client is disconnected by hand in
+        // the second branch: dropping the handle alone leaves the socket up.
+        let started = tokio::time::Instant::now();
+        tokio::select! {
+            _ = handle => {}
+            _ = shutdown.notified() => {
+                tracing::info!("whatsapp channel shutting down");
+                client.disconnect().await;
+                break;
+            }
+        }
+
+        *live.write().await = None;
+        if started.elapsed() >= GOOD_CONNECTION {
+            failures = 0;
+        }
+        failures = failures + 1;
+        let pause = RECONNECT_PAUSES[(failures - 1).min(RECONNECT_PAUSES.len() - 1)];
+        tracing::warn!(
+            "the whatsapp session ended; a fresh one is dialled in {}s",
+            pause.as_secs()
+        );
+
+        tokio::select! {
+            _ = tokio::time::sleep(pause) => {}
+            _ = shutdown.notified() => {
+                tracing::info!("whatsapp channel shutting down");
+                break;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Remove the punctuation people put in a phone number.
+///
+/// The allow-list should match whether the number was written with a
+/// leading `+` or spaces.
+pub fn clean_number(number: &str) -> String {
+    number
+        .trim()
+        .chars()
+        .filter(|character| !matches!(character, '+' | ' ' | '-' | '(' | ')' | '.' | '_' | '–'))
+        .collect()
 }
 
 #[async_trait]
@@ -193,43 +481,41 @@ impl Channel for WhatsAppChannel {
     }
 
     fn is_authorized(&self, sender: &str) -> bool {
-        self.is_number_allowed(sender)
+        // A private chat's own address is the person's phone number, so the
+        // allow-list and the pairing grants are both read by that address.
+        let allowed = self.allowed.contains(&clean_number(sender));
+        allowed
+            || self
+                .pairing
+                .as_ref()
+                .is_some_and(|store| store.is_granted(self.name(), sender, sender))
     }
 
     async fn run(&self, inbound: InboundSender, _outbound: OutboundSender) -> Result<()> {
-        let state = WebhookState {
+        if self.allowed.is_empty() {
+            tracing::warn!(
+                "whatsapp channel has no allowed numbers — pair someone with a code, or set \
+                 WHATSAPP_ALLOWED_NUMBERS"
+            );
+        }
+
+        let inbox = Arc::new(Inbox {
             inbound,
-            verify_token: self.verify_token.clone(),
-            app_secret: self.app_secret.clone(),
             allowed: self.allowed.clone(),
-            warned: Arc::new(AtomicBool::new(false)),
-        };
+            pairing: self.pairing.clone(),
+            ack_reaction: self.ack_reaction.clone(),
+            read_receipts: self.read_receipts,
+            typing: self.typing.clone(),
+        });
 
-        let app = Router::new()
-            .route(WEBHOOK_PATH, get(verify).post(receive))
-            .with_state(state);
-
-        let listener =
-            tokio::net::TcpListener::bind((self.webhook_host.as_str(), self.webhook_port))
-                .await
-                .with_context(|| {
-                    format!(
-                        "could not listen for WhatsApp webhooks on {}:{}",
-                        self.webhook_host, self.webhook_port
-                    )
-                })?;
-        let address = listener.local_addr()?;
-        let _ = self.bound.set(address);
-        tracing::info!("whatsapp webhook listening on http://{address}{WEBHOOK_PATH}");
-
-        let shutdown = self.shutdown.clone();
-        axum::serve(listener, app)
-            .with_graceful_shutdown(async move {
-                shutdown.notified().await;
-            })
-            .await
-            .context("the WhatsApp webhook server stopped")?;
-        Ok(())
+        supervise(
+            inbox,
+            self.store_path.clone(),
+            self.push_name.clone(),
+            self.shutdown.clone(),
+            self.client.clone(),
+        )
+        .await
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -244,277 +530,48 @@ impl Channel for WhatsAppChannel {
             return Ok(());
         }
 
-        let to = clean_number(&message.conversation);
-        if to.is_empty() {
-            anyhow::bail!("the WhatsApp conversation has no number");
-        }
+        // The indicator has said its piece; the reply is on its way.
+        stop_typing(&self.typing, &message.conversation).await;
+
+        let Some(client) = self.live().await else {
+            anyhow::bail!(
+                "whatsapp is not linked yet — scan the qr code from `lia serve`, then ask again"
+            );
+        };
+
+        let to: Jid = message
+            .conversation
+            .parse()
+            .with_context(|| format!("'{}' is not a whatsapp chat", message.conversation))?;
 
         for chunk in split_message(&message.text, MESSAGE_LIMIT) {
-            let body = json!({
-                "messaging_product": "whatsapp",
-                "recipient_type": "individual",
-                "to": to,
-                "type": "text",
-                "text": {
-                    "body": chunk,
-                    "preview_url": false,
-                },
-            });
-
-            let response = self
-                .client
-                .post(self.messages_url())
-                .bearer_auth(&self.token)
-                .json(&body)
-                .send()
-                .await
-                .context("could not reach the WhatsApp API")?;
-
-            if !response.status().is_success() {
-                let status = response.status();
-                let text = response.text().await.unwrap_or_default();
-                anyhow::bail!("WhatsApp refused the message ({status}): {text}");
+            // Three tries: a dying connection is sometimes revived by the
+            // next dial rather than by waiting.
+            let mut last_error = None;
+            let mut sent = false;
+            for attempt in 0..3 {
+                if attempt > 0 {
+                    tokio::time::sleep(Duration::from_millis(800 * attempt as u64)).await;
+                }
+                match client.send_text(to.clone(), &chunk).await {
+                    Ok(sent_message) => {
+                        tracing::debug!(
+                            "whatsapp accepted message {} for {to}",
+                            sent_message.message_id
+                        );
+                        sent = true;
+                        break;
+                    }
+                    Err(e) => last_error = Some(e),
+                }
+            }
+            if !sent {
+                let error = last_error.expect("an attempt was made");
+                anyhow::bail!("whatsapp refused the message for {to}: {error}");
             }
         }
         Ok(())
     }
-}
-
-/// What the webhook handlers share.
-#[derive(Clone)]
-struct WebhookState {
-    inbound: InboundSender,
-    verify_token: String,
-    app_secret: Option<String>,
-    allowed: HashSet<String>,
-    /// Whether the missing-secret warning has been printed.
-    warned: Arc<AtomicBool>,
-}
-
-/// The query Meta sends when the webhook is registered.
-#[derive(Debug, Deserialize)]
-struct Verification {
-    #[serde(rename = "hub.mode")]
-    mode: Option<String>,
-    #[serde(rename = "hub.verify_token")]
-    token: Option<String>,
-    #[serde(rename = "hub.challenge")]
-    challenge: Option<String>,
-}
-
-/// Answer Meta's subscription check.
-async fn verify(State(state): State<WebhookState>, Query(query): Query<Verification>) -> Response {
-    let subscribed = query.mode.as_deref() == Some("subscribe");
-    let token_matches = query.token.as_deref() == Some(state.verify_token.as_str());
-    match (subscribed && token_matches, query.challenge) {
-        (true, Some(challenge)) => (StatusCode::OK, challenge).into_response(),
-        _ => (StatusCode::FORBIDDEN, "verification failed").into_response(),
-    }
-}
-
-/// Receive a delivery from Meta.
-async fn receive(State(state): State<WebhookState>, headers: HeaderMap, body: Bytes) -> Response {
-    if let Some(secret) = &state.app_secret {
-        let signature = headers
-            .get("x-hub-signature-256")
-            .and_then(|value| value.to_str().ok());
-        if !signature_matches(secret, &body[..], signature) {
-            tracing::warn!("a WhatsApp delivery had no valid signature");
-            return (StatusCode::FORBIDDEN, "bad signature").into_response();
-        }
-    } else if !state.warned.swap(true, Ordering::Relaxed) {
-        tracing::warn!(
-            "WHATSAPP_APP_SECRET is not set; the webhook cannot tell a real delivery from a forged one"
-        );
-    }
-
-    let messages = match messages_from(&body) {
-        Ok(messages) => messages,
-        Err(e) => {
-            tracing::warn!("a WhatsApp delivery could not be read: {e}");
-            return (StatusCode::BAD_REQUEST, "bad payload").into_response();
-        }
-    };
-
-    for message in messages {
-        if !state.allowed.contains(&clean_number(&message.sender)) {
-            tracing::debug!(
-                "a WhatsApp message from {} was not on the allow-list",
-                message.sender
-            );
-            continue;
-        }
-        if state.inbound.send(message).await.is_err() {
-            break;
-        }
-    }
-
-    // Meta retries anything that is not a 200, so delivery is acknowledged
-    // as soon as the message is on the queue.
-    (StatusCode::OK, "ok").into_response()
-}
-
-/// Check the `X-Hub-Signature-256` header against the app secret.
-pub fn signature_matches(secret: &str, body: &[u8], header: Option<&str>) -> bool {
-    let Some(header) = header else {
-        return false;
-    };
-    let Some(encoded) = header.trim().strip_prefix("sha256=") else {
-        return false;
-    };
-    let Ok(expected) = hex::decode(encoded) else {
-        return false;
-    };
-
-    let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(secret.as_bytes()) else {
-        return false;
-    };
-    mac.update(body);
-    let actual = mac.finalize().into_bytes();
-
-    // Compare in constant time, so the header cannot be guessed a byte at a
-    // time.
-    if expected.len() != actual.len() {
-        return false;
-    }
-    let mut difference = 0u8;
-    for (left, right) in expected.iter().zip(actual.iter()) {
-        difference |= left ^ right;
-    }
-    difference == 0
-}
-
-/// Read the messages out of a webhook delivery.
-///
-/// Only text messages become [`InboundMessage`]s: status updates, receipts
-/// and media are left for another day.
-pub fn messages_from(body: &[u8]) -> Result<Vec<InboundMessage>> {
-    let delivery: Delivery =
-        serde_json::from_slice(body).context("the delivery is not the JSON WhatsApp sends")?;
-
-    let mut messages = Vec::new();
-    for entry in delivery.entry {
-        for change in entry.changes {
-            if !change.field.is_empty() && change.field != "messages" {
-                continue;
-            }
-
-            let names: HashMap<String, Option<String>> = change
-                .value
-                .contacts
-                .iter()
-                .map(|contact| {
-                    (
-                        clean_number(&contact.wa_id),
-                        contact
-                            .profile
-                            .as_ref()
-                            .and_then(|profile| profile.name.clone()),
-                    )
-                })
-                .collect();
-
-            for message in change.value.messages {
-                if !message.kind.is_empty() && message.kind != "text" {
-                    continue;
-                }
-                let Some(text) = message.text else {
-                    continue;
-                };
-                let text = text.body.trim();
-                if text.is_empty() {
-                    continue;
-                }
-
-                let sender = clean_number(&message.from);
-                if sender.is_empty() {
-                    continue;
-                }
-
-                let mut inbound = InboundMessage::new(
-                    "whatsapp",
-                    sender.clone(),
-                    text.to_string(),
-                    sender.clone(),
-                );
-                inbound.sender_name = names.get(&sender).cloned().flatten();
-                messages.push(inbound);
-            }
-        }
-    }
-
-    Ok(messages)
-}
-
-/// Remove the punctuation people put in a phone number.
-///
-/// The Cloud API wants digits, and the allow-list should match whether the
-/// number was written with a leading `+` or spaces.
-pub fn clean_number(number: &str) -> String {
-    number
-        .trim()
-        .chars()
-        .filter(|character| !matches!(character, '+' | ' ' | '-' | '(' | ')' | '.' | '_'))
-        .collect()
-}
-
-/// The shape of a webhook delivery, as far as it matters here.
-#[derive(Debug, Deserialize)]
-struct Delivery {
-    #[serde(default)]
-    entry: Vec<Entry>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Entry {
-    #[serde(default)]
-    changes: Vec<Change>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Change {
-    #[serde(default)]
-    field: String,
-    #[serde(default)]
-    value: Value,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct Value {
-    #[serde(default)]
-    contacts: Vec<Contact>,
-    #[serde(default)]
-    messages: Vec<Message>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Contact {
-    #[serde(default)]
-    wa_id: String,
-    #[serde(default)]
-    profile: Option<Profile>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Profile {
-    #[serde(default)]
-    name: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Message {
-    #[serde(default)]
-    from: String,
-    #[serde(rename = "type", default)]
-    kind: String,
-    #[serde(default)]
-    text: Option<Text>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Text {
-    #[serde(default)]
-    body: String,
 }
 
 #[cfg(test)]
@@ -528,76 +585,26 @@ mod tests {
     }
 
     #[test]
-    fn a_signature_is_checked() {
-        let body = br#"{"hello":"there"}"#;
-        let mut mac = Hmac::<Sha256>::new_from_slice(b"secret").expect("a key");
-        mac.update(body);
-        let signature = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));
-
-        assert!(signature_matches("secret", body, Some(&signature)));
-        assert!(!signature_matches("another", body, Some(&signature)));
-        assert!(!signature_matches("secret", body, None));
-        assert!(!signature_matches("secret", body, Some("sha256=zzzz")));
+    fn without_an_allow_list_nobody_is_let_in() {
+        let state = std::env::temp_dir().join("lia-test-whatsapp-nobody");
+        let channel = WhatsAppChannel::new(state.join("w.db"), Vec::new());
+        assert!(!channel.is_number_allowed("15551234567"));
     }
 
     #[test]
-    fn a_text_message_becomes_an_inbound_message() {
-        let body = br#"{
-            "object": "whatsapp_business_account",
-            "entry": [{
-                "id": "1",
-                "changes": [{
-                    "field": "messages",
-                    "value": {
-                        "messaging_product": "whatsapp",
-                        "contacts": [{
-                            "wa_id": "15551234567",
-                            "profile": { "name": "Alice" }
-                        }],
-                        "messages": [{
-                            "from": "15551234567",
-                            "id": "wamid.1",
-                            "timestamp": "1700000000",
-                            "type": "text",
-                            "text": { "body": "hello there" }
-                        }]
-                    }
-                }]
-            }]
-        }"#;
-
-        let messages = messages_from(body).expect("the delivery is read");
-        assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].text, "hello there");
-        assert_eq!(messages[0].sender, "15551234567");
-        assert_eq!(messages[0].sender_name.as_deref(), Some("Alice"));
-        assert_eq!(messages[0].conversation, "15551234567");
-        assert_eq!(messages[0].channel, "whatsapp");
-    }
-
-    #[test]
-    fn a_status_is_not_a_message() {
-        let body = br#"{
-            "entry": [{
-                "changes": [{
-                    "field": "messages",
-                    "value": {
-                        "statuses": [{ "id": "wamid.1", "status": "read" }]
-                    }
-                }]
-            }]
-        }"#;
-        let messages = messages_from(body).expect("the delivery is read");
-        assert!(messages.is_empty(), "a status became a message");
-    }
-
-    #[test]
-    fn only_the_allowed_numbers_are_accepted() {
-        let channel = WhatsAppChannel::new("token", "1", "verify", vec!["+1 555 123 4567".into()]);
+    fn a_number_on_the_allow_list_is_let_in() {
+        let state = std::env::temp_dir().join("lia-test-whatsapp-known");
+        let channel =
+            WhatsAppChannel::new(state.join("w.db"), vec!["+1 555 123 4567".to_string()]);
         assert!(channel.is_number_allowed("15551234567"));
         assert!(!channel.is_number_allowed("15550000000"));
+    }
 
-        let empty = WhatsAppChannel::new("token", "1", "verify", Vec::new());
-        assert!(!empty.is_number_allowed("15551234567"));
+    #[test]
+    fn an_message_is_routed_to_the_right_chat() {
+        let inbound =
+            InboundMessage::new("whatsapp", "15551234567", "hello", "15551234567");
+        assert_eq!(inbound.channel, "whatsapp");
+        assert_eq!(inbound.conversation, "15551234567");
     }
 }

@@ -565,7 +565,7 @@ async fn doctor(config: Config) -> Result<()> {
     }
 
     println!("the channels");
-    let channels = crate::channel::channels_from_env(None);
+    let channels = crate::channel::channels_from_env(None, &config.state_dir);
     if channels.is_empty() {
         println!("  none is watching — the terminal is the only way in");
     } else {
@@ -1363,10 +1363,10 @@ async fn serve_gateway(
         let pairing = Arc::new(crate::channel::PairingStore::open(
             config.state_dir.join("pairing.json"),
         )?);
-        let channels = crate::channel::channels_from_env(Some(pairing));
+        let channels = crate::channel::channels_from_env(Some(pairing), &config.state_dir);
         if channels.is_empty() {
             println!(
-                "no channels enabled (run `lia setup`, or set TELEGRAM_BOT_TOKEN, DISCORD_BOT_TOKEN, SLACK_BOT_TOKEN or WHATSAPP_TOKEN)"
+                "no channels enabled (run `lia setup`, or set TELEGRAM_BOT_TOKEN, DISCORD_BOT_TOKEN, SLACK_BOT_TOKEN; for WhatsApp just start `lia serve` and scan the qr code)"
             );
         } else {
             let (event_tx, _event_rx) = tokio::sync::mpsc::channel(256);

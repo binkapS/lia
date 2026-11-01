@@ -36,27 +36,33 @@ export SLACK_ALLOWED_CHANNELS=C0123456789
 export SLACK_ALLOWED_USERS=U9876543210    # optional
 ```
 
-**WhatsApp** uses the Cloud API. Meta pushes new messages to a webhook, so
-there is nothing to poll, and the webhook must be reachable over HTTPS:
+**WhatsApp** links as a WhatsApp Web device, the way OpenClaw links
+Baileys. There is no token, no app review and no webhook: on the first
+start, `lia serve` draws a qr code in the terminal. Open WhatsApp on the
+phone, go to *Settings → Linked devices → Link a device*, and scan it. The
+session is kept in the state directory (`whatsapp.db`), so every later
+start reconnects without asking again — until the phone unlinks the
+device, which asks for a fresh scan.
 
 ```sh
-export WHATSAPP_TOKEN=...                 # access token
-export WHATSAPP_PHONE_NUMBER_ID=...       # the sending number's id
-export WHATSAPP_VERIFY_TOKEN=...          # a string you choose, echoed by Meta
-export WHATSAPP_APP_SECRET=...            # checks webhook signatures
 export WHATSAPP_ALLOWED_NUMBERS=15551234567   # comma separated, with country code
 ```
 
-The webhook listens on `127.0.0.1:8788` at `/webhooks/whatsapp`. Point a
-tunnel at it (or move it with `WHATSAPP_WEBHOOK_HOST` and
-`WHATSAPP_WEBHOOK_PORT`) and give Meta the public HTTPS address and the
-verify token. A delivery is checked against `WHATSAPP_APP_SECRET` when it is
-set; without it the webhook still works, but anyone who knows the address
-could post a message, so it is worth setting. Only numbers on the allow-list
-may talk to the assistant, and an empty list means nobody can. WhatsApp text
-messages are supported in both directions; status updates and media are
-ignored. `WHATSAPP_API_ROOT` moves the Graph API version when Meta retires
-the default one.
+Only numbers on the allow-list may talk to the assistant, and an empty
+list means nobody can — strangers in a private chat are offered a pairing
+code, as on Telegram. Text is supported in both directions; media, status
+updates and newsletter channels are ignored. A few knobs:
+
+```sh
+export WHATSAPP_ACK_REACTION=👀   # a message is reacted to when the turn starts; empty turns it off
+export WHATSAPP_READ_RECEIPTS=1   # accepted messages are marked read; 0 turns it off
+export WHATSAPP_PUSH_NAME=Lia     # the name the linked device shows as on the phone
+```
+
+While the assistant works on a reply, the chat shows a typing indicator
+and the original message carries the ack reaction; the reply then goes
+out (split into WhatsApp-sized pieces). A dropped connection is dialled
+again by itself after a pause that grows with the failures.
 
 A picture sent in a chat is picked up as well: Telegram and Slack downloads
 it, Discord takes it from the attachment, and the assistant is asked about it
@@ -71,8 +77,9 @@ other way round: somebody says hello, the bot answers with a code, and
 the owner approves that code. Until then nothing they say reaches the
 assistant.
 
-On Telegram, a private message from somebody who is not on the allow-list
-is answered with a pairing code. The owner approves it in the terminal:
+On Telegram and WhatsApp, a private message from somebody who is not on
+the allow-list is answered with a pairing code. The owner approves it in
+the terminal:
 
 ```sh
 lia pair              # who is waiting, and who is let in

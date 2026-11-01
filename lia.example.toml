@@ -349,12 +349,13 @@ port = 8787
 #   SLACK_BOT_TOKEN=...     SLACK_ALLOWED_CHANNELS=C0123456789
 #                          SLACK_ALLOWED_USERS=U9876543210
 #
-# WhatsApp uses the Cloud API and a webhook rather than polling. The webhook
-# listens on 127.0.0.1:8788 at /webhooks/whatsapp by default; expose it over
-# HTTPS (a tunnel will do) and give Meta the address and verify token.
-#   WHATSAPP_TOKEN=...                WHATSAPP_PHONE_NUMBER_ID=...
-#   WHATSAPP_VERIFY_TOKEN=...         WHATSAPP_APP_SECRET=...
+# WhatsApp links as a WhatsApp Web device: on the first start, `lia serve`
+# shows a qr code to scan from the phone (Settings → Linked devices), and
+# the session is kept in the state directory afterwards. No tokens, and
+# nothing has to be reachable over HTTPS.
 #   WHATSAPP_ALLOWED_NUMBERS=15551234567
-#   WHATSAPP_WEBHOOK_PORT=8788        # optional
+#   WHATSAPP_ACK_REACTION=👀          # optional: the "message received" emoji
+#   WHATSAPP_READ_RECEIPTS=1          # optional
+#   WHATSAPP_PUSH_NAME=Lia            # optional
 #
 # The allow-lists are empty by default: an unconfigured bot answers nobody.

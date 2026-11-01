@@ -556,7 +556,13 @@ impl ChannelDispatcher {
 ///
 /// A channel that has no credentials is skipped rather than being an error:
 /// running the assistant with only Telegram set up should still work.
-pub fn channels_from_env(pairing: Option<Arc<PairingStore>>) -> Vec<Arc<dyn Channel>> {
+///
+/// The state directory is where the WhatsApp channel keeps its linked
+/// device session, so a pairing by qr code survives a restart.
+pub fn channels_from_env(
+    pairing: Option<Arc<PairingStore>>,
+    state_dir: &std::path::Path,
+) -> Vec<Arc<dyn Channel>> {
     let mut channels: Vec<Arc<dyn Channel>> = Vec::new();
 
     if let Some(telegram) = telegram::TelegramChannel::from_env() {
@@ -572,7 +578,11 @@ pub fn channels_from_env(pairing: Option<Arc<PairingStore>>) -> Vec<Arc<dyn Chan
     if let Some(slack) = slack::SlackChannel::from_env() {
         channels.push(Arc::new(slack));
     }
-    if let Some(whatsapp) = whatsapp::WhatsAppChannel::from_env() {
+    if let Some(whatsapp) = whatsapp::WhatsAppChannel::from_env(state_dir) {
+        let whatsapp = match pairing.clone() {
+            Some(store) => whatsapp.with_pairing(store),
+            None => whatsapp,
+        };
         channels.push(Arc::new(whatsapp));
     }
 
@@ -649,7 +659,12 @@ pub fn spawn_channels(
         handles.push(tokio::spawn(async move {
             while let Some(message) = outbound_rx.recv().await {
                 if let Err(e) = sender.send(&message).await {
-                    tracing::warn!("could not send to {}: {e}", sender.name());
+                    // A reply the platform refused is not a warning: the
+                    // sender is left waiting for words that never come.
+                    tracing::error!(
+                        "auto-reply delivery failed on {}: {e}",
+                        sender.name()
+                    );
                 }
             }
         }));

@@ -14,7 +14,12 @@ async-trait = "0.1"
 async-stream = "0.3"
 
 # http / providers
-reqwest = { version = "0.12", features = ["json", "stream", "multipart", "rustls-tls"], default-features = false }
+reqwest = { version = "0.12", features = [
+    "json",
+    "stream",
+    "multipart",
+    "rustls-tls",
+], default-features = false }
 reqwest-eventsource = "0.1"
 eventsource-stream = "0.2"
 base64 = "0.22"
@@ -27,6 +32,19 @@ toml = "0.9"
 # webhook signatures
 hmac = "0.12"
 hex = "0.4"
+
+# whatsapp web channel: a linked device that pairs by qr code, the
+# default-features off: the "simd" default needs
+# a nightly toolchain (portable_simd), and we ship stable-only.
+whatsapp-rust = { version = "0.7", default-features = false, features = [
+    "sqlite-storage",
+    "tokio-runtime",
+    "tokio-native",
+    "tokio-transport",
+    "signal",
+    "ureq-client",
+] }
+qrcode = "0.14"
 
 # cli / tui
 clap = { version = "4", features = ["derive", "env"] }
