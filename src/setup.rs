@@ -329,6 +329,7 @@ pub fn provider_key(provider: ProviderKind) -> &'static str {
         ProviderKind::Anthropic => "ANTHROPIC_API_KEY",
         ProviderKind::Openai => "OPENAI_API_KEY",
         ProviderKind::Ollama | ProviderKind::OllamaCloud => "OLLAMA_API_KEY",
+        ProviderKind::LlamaCpp => "LLAMA_CPP_API_KEY",
     }
 }
 
@@ -480,5 +481,6 @@ mod tests {
         assert_eq!(provider_key(ProviderKind::Anthropic), "ANTHROPIC_API_KEY");
         assert_eq!(provider_key(ProviderKind::Ollama), "OLLAMA_API_KEY");
         assert_eq!(provider_key(ProviderKind::OllamaCloud), "OLLAMA_API_KEY");
+        assert_eq!(provider_key(ProviderKind::LlamaCpp), "LLAMA_CPP_API_KEY");
     }
 }

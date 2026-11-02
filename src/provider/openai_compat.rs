@@ -19,6 +19,12 @@ use super::types::{
 };
 use super::{EventStream, Provider, ProviderError, Result};
 
+/// Where a llama.cpp server usually is.
+///
+/// `llama-server` listens on 8080 by default and serves the OpenAI shapes
+/// under `/v1`.
+pub const LLAMA_CPP_BASE_URL: &str = "http://localhost:8080/v1";
+
 /// A server that speaks the OpenAI Chat Completions API.
 pub struct OpenAiCompatProvider {
     client: reqwest::Client,
@@ -95,9 +101,18 @@ impl OpenAiCompatProvider {
         }
 
         let mut body = json!({
-            "model": request.model,
             "messages": messages,
         });
+        // An unnamed model leaves the choice to the server, which is what
+        // a llama.cpp server that was started with one model wants.
+        let model = if request.model.is_empty() {
+            self.model.as_str()
+        } else {
+            request.model.as_str()
+        };
+        if !model.is_empty() {
+            body["model"] = json!(model);
+        }
 
         if !request.tools.is_empty() {
             body["tools"] = json!(request.tools.iter().map(encode_tool).collect::<Vec<_>>());

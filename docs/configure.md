@@ -9,7 +9,7 @@ lia config --write ~/.config/lia/config.toml
 Then set the model and provider:
 
 ```toml
-provider = "openai"          # or "anthropic", "ollama", "ollama-cloud"
+provider = "openai"          # or "anthropic", "ollama", "ollama-cloud", "llama.cpp"
 model = "gpt-4o-mini"
 base_url = "https://api.openai.com/v1"
 
@@ -34,6 +34,8 @@ working:
 export OPENAI_API_KEY=...     # for the openai provider
 export ANTHROPIC_API_KEY=...  # for the anthropic provider
 export OLLAMA_API_KEY=...     # for the ollama-cloud provider
+# llama.cpp needs no key unless the server was started with --api-key:
+# export LLAMA_CPP_API_KEY=... # then
 ```
 
 The file can also be changed without the wizard:
@@ -123,6 +125,24 @@ what is sent to a chat.
 A local model is loaded into memory before it can answer, which takes a
 while the first time. `keep_alive` keeps it there afterwards, so the
 second question does not wait for it again.
+
+### llama.cpp
+
+`llama-server` serves models from a single program:
+
+```sh
+llama-server -m model.gguf --port 8080
+```
+
+```toml
+provider = "llama.cpp"
+```
+
+The server is found at `http://localhost:8080/v1`, and needs no key
+(unless it was started with `--api-key`; then set `LLAMA_CPP_API_KEY`).
+Nothing is named after a model: the server runs whichever one it was
+started with, and `lia models` lists it. A server elsewhere is named with
+`base_url`.
 
 ### When a model cannot answer
 

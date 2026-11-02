@@ -41,6 +41,14 @@ pub enum ProviderKind {
     /// Ollama's cloud.
     #[serde(rename = "ollama-cloud", alias = "ollama_cloud")]
     OllamaCloud,
+    /// A llama.cpp server (`llama-server`), on this machine or elsewhere.
+    #[serde(
+        rename = "llama.cpp",
+        alias = "llama-cpp",
+        alias = "llama_cpp",
+        alias = "llamacpp"
+    )]
+    LlamaCpp,
 }
 
 impl ProviderKind {
@@ -50,6 +58,7 @@ impl ProviderKind {
             ProviderKind::Anthropic => "anthropic",
             ProviderKind::Ollama => "ollama",
             ProviderKind::OllamaCloud => "ollama-cloud",
+            ProviderKind::LlamaCpp => "llama.cpp",
         }
     }
 
@@ -60,6 +69,9 @@ impl ProviderKind {
             ProviderKind::Anthropic => "claude-sonnet-4-5",
             ProviderKind::Ollama => "llama3.2",
             ProviderKind::OllamaCloud => "gpt-oss:120b",
+            // Whatever `llama-server` was started with; naming a model by
+            // hand would only be a guess at the file it loads.
+            ProviderKind::LlamaCpp => "",
         }
     }
 
@@ -71,10 +83,14 @@ impl ProviderKind {
             ProviderKind::Anthropic => Some("https://api.anthropic.com"),
             ProviderKind::Ollama => Some(crate::provider::ollama::LOCAL_BASE_URL),
             ProviderKind::OllamaCloud => Some(crate::provider::ollama::CLOUD_BASE_URL),
+            ProviderKind::LlamaCpp => Some(crate::provider::openai_compat::LLAMA_CPP_BASE_URL),
         }
     }
 
     /// Whether the provider cannot be used without a key.
+    ///
+    /// Most llama.cpp servers are not; one started with `--api-key` wants
+    /// `LLAMA_CPP_API_KEY`, but it is a choice, not a requirement.
     pub fn needs_key(&self) -> bool {
         matches!(self, ProviderKind::Anthropic | ProviderKind::OllamaCloud)
     }
@@ -89,8 +105,12 @@ impl std::str::FromStr for ProviderKind {
             "anthropic" | "claude" => Ok(ProviderKind::Anthropic),
             "ollama" | "ollama-local" | "ollama-server" => Ok(ProviderKind::Ollama),
             "ollama-cloud" | "ollama_cloud" | "ollama.com" => Ok(ProviderKind::OllamaCloud),
+            "llama.cpp" | "llama-cpp" | "llama_cpp" | "llamacpp" | "llama-server" => {
+                Ok(ProviderKind::LlamaCpp)
+            }
             other => Err(format!(
-                "unknown provider '{other}' (expected 'openai', 'anthropic', 'ollama' or 'ollama-cloud')"
+                "unknown provider '{other}' (expected 'openai', 'anthropic', 'ollama', \
+                 'ollama-cloud' or 'llama.cpp')"
             )),
         }
     }
@@ -798,6 +818,7 @@ impl Config {
             ProviderKind::Anthropic => "ANTHROPIC_API_KEY",
             ProviderKind::Openai => "OPENAI_API_KEY",
             ProviderKind::Ollama | ProviderKind::OllamaCloud => "OLLAMA_API_KEY",
+            ProviderKind::LlamaCpp => "LLAMA_CPP_API_KEY",
         };
         let variable = variable.unwrap_or(usual);
 
@@ -886,6 +907,16 @@ impl Config {
                 if let Some(base_url) = base_url {
                     provider = provider.with_base_url(base_url);
                 }
+                Arc::new(provider)
+            }
+            ProviderKind::LlamaCpp => {
+                // A llama.cpp server usually runs keyless; one started with
+                // `--api-key` is served the stored key as a bearer token.
+                let key = self.key_for(kind, key_variable);
+                let mut provider =
+                    OpenAiCompatProvider::new(key, model).with_max_tokens(self.max_output_tokens);
+                provider = provider
+                    .with_base_url(base_url.unwrap_or(crate::provider::openai_compat::LLAMA_CPP_BASE_URL));
                 Arc::new(provider)
             }
         };

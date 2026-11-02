@@ -340,220 +340,63 @@ async fn start_server(
     (address, handle)
 }
 
-/// The WhatsApp tests, against a server that speaks the Cloud API's shape
-/// and a webhook that is exercised the way Meta exercises it.
+/// The WhatsApp tests. The adapter links by qr code, and there is nothing
+/// to listen on: what is answerable offline is that an unlinked reply asks
+/// for the scan instead of lying about delivery, and that a pairing code
+/// lets a stranger's number in the way Telegram pairs a chat.
 mod whatsapp {
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
-    use axum::{Json, Router, routing::post};
-    use hmac::{Hmac, Mac};
     use lia::channel::whatsapp::WhatsAppChannel;
-    use lia::channel::{Channel, InboundMessage, OutboundMessage};
-    use serde_json::{Value, json};
-    use sha2::Sha256;
-
-    /// What the mock Graph API knows.
-    #[derive(Default)]
-    struct Fake {
-        sent: Vec<Value>,
-    }
+    use lia::channel::{Channel, OutboundMessage, PairingStore};
 
     #[tokio::test]
-    async fn a_reply_is_sent_through_the_cloud_api() {
-        let fake = Arc::new(Mutex::new(Fake::default()));
-        let (address, server) = start_server(fake.clone()).await;
-
+    async fn a_reply_without_a_link_asks_for_the_qr_code() {
+        let state = tempfile::tempdir().unwrap();
         let channel = WhatsAppChannel::new(
-            "token",
-            "123456789",
-            "verify",
+            state.path().join("whatsapp.db"),
             vec!["15551234567".to_string()],
-        )
-        .with_api_root(format!("http://{address}/v21.0"));
-
-        channel
-            .send(&OutboundMessage::new("+1 555 123 4567", "the answer"))
-            .await
-            .expect("the reply is sent");
-
-        let sent = fake.lock().unwrap().sent.clone();
-        assert_eq!(sent.len(), 1, "the reply was not sent: {sent:?}");
-        assert_eq!(sent[0]["messaging_product"], "whatsapp");
-        assert_eq!(sent[0]["recipient_type"], "individual");
-        assert_eq!(sent[0]["to"], "15551234567");
-        assert_eq!(sent[0]["type"], "text");
-        assert_eq!(sent[0]["text"]["body"], "the answer");
-
-        server.abort();
-    }
-
-    #[tokio::test]
-    async fn the_webhook_verifies_and_delivers_allowed_messages() {
-        let channel = WhatsAppChannel::new(
-            "token",
-            "123456789",
-            "verify-me",
-            vec!["+1 (555) 123-4567".to_string()],
-        )
-        .with_app_secret("app-secret")
-        .with_webhook("127.0.0.1", 0);
-
-        let (inbound_tx, mut inbound_rx) = tokio::sync::mpsc::channel::<InboundMessage>(16);
-        let (outbound_tx, _outbound_rx) = tokio::sync::mpsc::channel::<OutboundMessage>(16);
-
-        let runner = channel.clone();
-        let task = tokio::spawn(async move {
-            runner.run(inbound_tx, outbound_tx).await.unwrap();
-        });
-
-        let address = wait_for_webhook(&channel).await;
-        let client = reqwest::Client::new();
-        let url = format!("http://{address}/webhooks/whatsapp");
-
-        // The subscription check is answered with the challenge.
-        let response = client
-            .get(&url)
-            .query(&[
-                ("hub.mode", "subscribe"),
-                ("hub.verify_token", "verify-me"),
-                ("hub.challenge", "the-challenge"),
-            ])
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(response.status(), 200);
-        assert_eq!(response.text().await.unwrap(), "the-challenge");
-
-        // The wrong token is refused.
-        let refused = client
-            .get(&url)
-            .query(&[
-                ("hub.mode", "subscribe"),
-                ("hub.verify_token", "not-the-token"),
-                ("hub.challenge", "the-challenge"),
-            ])
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(refused.status(), 403);
-
-        // A delivery from an allowed number is signed and delivered.
-        let allowed = delivery("+1 555 123 4567", "Alice", "hello there");
-        let response = deliver(&client, &url, &allowed, Some("app-secret")).await;
-        assert_eq!(response.status(), 200);
-
-        let inbound = tokio::time::timeout(std::time::Duration::from_secs(5), inbound_rx.recv())
-            .await
-            .expect("the adapter did not deliver the message")
-            .expect("the queue closed");
-        assert_eq!(inbound.text, "hello there");
-        assert_eq!(inbound.sender, "15551234567");
-        assert_eq!(inbound.sender_name.as_deref(), Some("Alice"));
-        assert_eq!(inbound.conversation, "15551234567");
-        assert_eq!(inbound.channel, "whatsapp");
-
-        // A delivery from somebody else is acknowledged but not passed on.
-        let stranger = delivery("15550000000", "Eve", "let me in");
-        let response = deliver(&client, &url, &stranger, Some("app-secret")).await;
-        assert_eq!(response.status(), 200);
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-        assert!(
-            inbound_rx.try_recv().is_err(),
-            "a stranger's message reached the assistant"
         );
 
-        // A body that is not signed by the app secret is refused.
-        let forged = delivery("15551234567", "Alice", "forged");
-        let response = deliver(&client, &url, &forged, Some("another-secret")).await;
-        assert_eq!(response.status(), 403);
+        let error = channel
+            .send(&OutboundMessage::new("15551234567", "the answer"))
+            .await
+            .expect_err("an adapter that was never linked sends nothing");
 
-        channel.shutdown().await.unwrap();
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), task).await;
+        assert!(
+            error.to_string().contains("qr"),
+            "the error should point at the qr code: {error}"
+        );
     }
 
-    /// Wait until the adapter has bound its webhook.
-    async fn wait_for_webhook(channel: &WhatsAppChannel) -> std::net::SocketAddr {
-        for _ in 0..200 {
-            if let Some(address) = channel.webhook_address() {
-                return address;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        panic!("the webhook did not start");
-    }
+    #[tokio::test]
+    async fn a_pairing_code_lets_a_number_in() {
+        let state = tempfile::tempdir().unwrap();
+        let store = Arc::new(
+            PairingStore::open(state.path().join("pairing.db")).expect("the store opens"),
+        );
 
-    /// A webhook delivery from one number.
-    fn delivery(from: &str, name: &str, text: &str) -> String {
-        json!({
-            "object": "whatsapp_business_account",
-            "entry": [{
-                "id": "1",
-                "changes": [{
-                    "field": "messages",
-                    "value": {
-                        "messaging_product": "whatsapp",
-                        "contacts": [{
-                            "wa_id": from,
-                            "profile": { "name": name }
-                        }],
-                        "messages": [{
-                            "from": from,
-                            "id": "wamid.1",
-                            "timestamp": "1700000000",
-                            "type": "text",
-                            "text": { "body": text }
-                        }]
-                    }
-                }]
-            }]
-        })
-        .to_string()
-    }
+        let channel = WhatsAppChannel::new(state.path().join("whatsapp.db"), Vec::new())
+            .with_pairing(store.clone());
 
-    /// Sign a body and post it, the way Meta does.
-    async fn deliver(
-        client: &reqwest::Client,
-        url: &str,
-        body: &str,
-        secret: Option<&str>,
-    ) -> reqwest::Response {
-        let mut request = client
-            .post(url)
-            .header("content-type", "application/json")
-            .body(body.to_string());
-        if let Some(secret) = secret {
-            let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
-            mac.update(body.as_bytes());
-            let signature = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));
-            request = request.header("x-hub-signature-256", signature);
-        }
-        request.send().await.unwrap()
-    }
+        assert!(
+            !channel.is_authorized("15551234567"),
+            "nobody is let in before a pairing is approved"
+        );
 
-    /// Start a server that speaks the Graph API's shape.
-    async fn start_server(
-        fake: Arc<Mutex<Fake>>,
-    ) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
-        async fn send(
-            axum::extract::Path(_phone): axum::extract::Path<String>,
-            axum::extract::State(fake): axum::extract::State<Arc<Mutex<Fake>>>,
-            Json(body): Json<Value>,
-        ) -> Json<Value> {
-            fake.lock().unwrap().sent.push(body);
-            Json(json!({ "messages": [{ "id": "wamid.1" }] }))
-        }
+        let (request, _) = store.request("whatsapp", "15551234567", "15551234567", None);
+        store
+            .approve(&request.code)
+            .expect("a waiting request is approved");
 
-        let app = Router::new()
-            .route("/v21.0/{phone}/messages", post(send))
-            .with_state(fake);
-
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let handle = tokio::spawn(async move {
-            let _ = axum::serve(listener, app).await;
-        });
-
-        (address, handle)
+        assert!(
+            channel.is_authorized("15551234567"),
+            "an approved pairing lets the number through"
+        );
+        assert!(
+            !channel.is_authorized("15550000000"),
+            "a stranger is still kept out"
+        );
     }
 }
 

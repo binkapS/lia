@@ -13,10 +13,13 @@
 #   "anthropic"     — the Anthropic Messages API
 #   "ollama"        — an Ollama server, on this machine or elsewhere
 #   "ollama-cloud"  — Ollama's cloud (needs OLLAMA_API_KEY)
+#   "llama.cpp"     — a llama.cpp server (llama-server), keyless by default;
+#                     start one with --api-key and set LLAMA_CPP_API_KEY
 provider = "openai"
 
 # The model id to request. Leave it out and the provider's own default is
-# used, which is the one that makes sense for it.
+# used, which is the one that makes sense for it. For llama.cpp there is
+# nothing to name: the server answers with whatever it was started with.
 model = "gpt-4o-mini"
 
 # Override the provider's API root. Leave unset for the default.
@@ -26,6 +29,9 @@ model = "gpt-4o-mini"
 # Ollama has its own address: a local server at http://localhost:11434,
 # and the cloud at https://ollama.com. The path people are used to typing
 # is understood too, so "https://ollama.com/v1" works as well.
+#
+# llama.cpp is at http://localhost:8080/v1 by default; the "/v1" people
+# type by habit is fine either way.
 
 # Other models to try when the one above cannot answer. They are asked in
 # order, and only when the one before could not: a rate limit, a network

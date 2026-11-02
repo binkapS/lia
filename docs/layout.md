@@ -3,7 +3,7 @@
 ```
 src/
 ├── agent/       the loop, session storage, context compaction
-├── provider/    neutral message types + Anthropic, OpenAI and Ollama adapters
+├── provider/    neutral message types + Anthropic, OpenAI, Ollama and llama.cpp adapters
 ├── tool/        the built-in tools and the approval policy
 ├── mcp/         the MCP client, and the file server it starts for itself
 ├── gateway/     the daemon: HTTP and WebSocket
