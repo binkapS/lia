@@ -227,6 +227,7 @@ consent to send or modify.
 
 ### Implementation status
 
+- Document tools (`document_read`, `document_create`, `document_edit`) handle PDF and DOCX; see `docs/tool-reference.md`.
 Implemented as library modules with tests: F1 inbox store (`src/inbox.rs`, CLI `lia inbox`, authenticated `/v1/inbox` routes and web panel), F4 timezone schedules, F5 briefings, F6 routines (`lia routine`, gateway tick loop), F7 calendar model, F8 read-only CalDAV client, F9 agenda helpers, F10 follow-ups, F11 read-only JMAP mail client (`lia mail`) and draft store, F12 approval gate.
 
 Due reminders are pushed by `lia serve` to one opted-in chat. `lia agenda` now wires the calendar (CalDAV via environment secrets), agenda and inbox due items; follow-ups are covered by `lia inbox` defer/complete/archive.

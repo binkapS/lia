@@ -9,6 +9,7 @@
 //! enforced by code" boundary the reference design uses.
 
 pub mod approval;
+pub mod document;
 pub mod fetch;
 pub mod filesystem;
 pub mod memory;

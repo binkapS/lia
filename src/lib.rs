@@ -23,6 +23,7 @@ pub mod calendar;
 pub mod channel;
 pub mod cli;
 pub mod config;
+pub mod document;
 pub mod email;
 pub mod external_action;
 pub mod followup;

@@ -5,6 +5,12 @@
 - `copy_path`, `move_path`, `patch`, `format_file`
 - `grep_codebase`, `find_symbols`
 
+## Documents
+- `document_read`: read `.pdf` (per page) or `.docx` (numbered paragraphs, optional formatting).
+- `document_create` (approval): build a styled `.pdf`/`.docx` from headings, styled runs, lists, tables, page breaks.
+- `document_edit` (approval): DOCX replace/delete/insert/style by paragraph number or text; PDF delete pages, best-effort text replace, metadata, append pages. Atomic write; `output` keeps the original.
+- Limits: PDFs use the 14 standard fonts (non-Latin text becomes `?`); existing PDFs cannot be restyled; `.doc` is unsupported; DOCX headers/footers and text boxes are not editable.
+
 ## Shell
 - `run_shell`
 

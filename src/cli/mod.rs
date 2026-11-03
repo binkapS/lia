@@ -1433,6 +1433,15 @@ pub fn build_tools(config: &Config) -> ToolRegistry {
     let mut registry = ToolRegistry::new();
     registry.register(Arc::new(ReadFileTool::new(workspace.clone())));
     registry.register(Arc::new(WriteFileTool::new(workspace.clone())));
+    registry.register(Arc::new(crate::tool::document::DocumentReadTool::new(
+        workspace.clone(),
+    )));
+    registry.register(Arc::new(crate::tool::document::DocumentCreateTool::new(
+        workspace.clone(),
+    )));
+    registry.register(Arc::new(crate::tool::document::DocumentEditTool::new(
+        workspace.clone(),
+    )));
     registry.register(Arc::new(EditFileTool::new(workspace.clone())));
     registry.register(Arc::new(ListDirectoryTool::new(workspace.clone())));
     registry.register(Arc::new(SearchTool::new(workspace.clone())));

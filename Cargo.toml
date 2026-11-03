@@ -80,6 +80,8 @@ regex = "1"
 # Multistatus responses from CalDAV servers.
 quick-xml = "0.38"
 ptts = { version = "0.4.2", features = ["hf", "hub"] }
+lopdf = { version = "0.46.0", default-features = false }
+zip = { version = "9.3.0", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tempfile = "3"
