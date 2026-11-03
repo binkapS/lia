@@ -16,15 +16,27 @@
 //! entry point.
 
 pub mod agent;
+pub mod agenda;
+pub mod briefing;
+pub mod caldav;
+pub mod calendar;
 pub mod channel;
 pub mod cli;
 pub mod config;
+pub mod email;
+pub mod external_action;
+pub mod followup;
 pub mod gateway;
 pub mod image;
+pub mod inbox;
+pub mod inbox_identity;
 pub mod live;
+pub mod jmap;
 pub mod mcp;
 pub mod memory;
 pub mod provider;
+pub mod reminder;
+pub mod routine;
 pub mod schedule;
 pub mod secrets;
 pub mod setup;

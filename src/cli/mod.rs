@@ -1,12 +1,12 @@
 //! Command-line entry point.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::agent::session::SessionStore;
 use crate::agent::{Agent, AgentConfig, NoInteraction, SessionRunner};
@@ -14,7 +14,8 @@ use crate::config::{Config, LiveShare, McpServerConfig, McpTransport, ProviderKi
 use crate::tool::ToolRegistry;
 use crate::tool::fetch::FetchTool;
 use crate::tool::filesystem::{
-    CopyPathTool, EditFileTool, FormatFileTool, ListDirectoryTool, MovePathTool, PatchTool, ReadFileTool, SearchTool, Workspace, WriteFileTool,
+    CopyPathTool, EditFileTool, FormatFileTool, ListDirectoryTool, MovePathTool, PatchTool,
+    ReadFileTool, SearchTool, Workspace, WriteFileTool,
 };
 use crate::tool::search::WebSearchTool;
 use crate::tool::shell::ShellTool;
@@ -161,6 +162,39 @@ pub enum Command {
         days: usize,
     },
 
+    /// Keep a personal inbox outside conversation history.
+    Inbox {
+        #[command(subcommand)]
+        command: InboxCommand,
+    },
+
+    /// Show today's calendar events and due inbox items.
+    ///
+    /// A read-only CalDAV calendar is included only when LIA_CALDAV_URL,
+    /// LIA_CALDAV_USER and LIA_CALDAV_PASSWORD are set (LIA_CALDAV_CALENDAR
+    /// names it in output; default "calendar").
+    Agenda {
+        /// IANA timezone that defines "today" (for example Europe/Paris).
+        #[arg(long, default_value = "UTC")]
+        timezone: String,
+    },
+
+    /// Read chosen email messages (read-only) and keep local drafts.
+    ///
+    /// Reading needs LIA_JMAP_SESSION_URL and LIA_JMAP_TOKEN (a JMAP API
+    /// token, for example from Fastmail). Lia can only read the messages you
+    /// name and can never send, move or delete mail.
+    Mail {
+        #[command(subcommand)]
+        command: MailCommand,
+    },
+
+    /// Manage opt-in daily briefing routines delivered by `lia serve`.
+    Routine {
+        #[command(subcommand)]
+        command: RoutineCommand,
+    },
+
     /// Record from the microphone and print what was said.
     Listen {
         /// How long to record for, in seconds.
@@ -210,6 +244,150 @@ pub enum Command {
         /// The code, when the action needs one.
         code: Option<String>,
     },
+}
+
+/// An inbox operation.
+#[derive(Debug, Subcommand)]
+pub enum InboxCommand {
+    /// Capture a new item.
+    Capture {
+        /// The item to remember.
+        text: String,
+        /// What kind of record to create.
+        #[arg(long, value_enum, default_value = "inbox")]
+        kind: InboxKind,
+        /// How important it is.
+        #[arg(long, value_enum, default_value = "normal")]
+        priority: InboxPriority,
+        /// An RFC 3339 due time.
+        #[arg(long)]
+        due_at: Option<String>,
+    },
+    /// List records (archived records are hidden unless requested).
+    List {
+        #[arg(long, value_enum)]
+        kind: Option<InboxKind>,
+        #[arg(long, value_enum)]
+        state: Option<InboxState>,
+        #[arg(long)]
+        include_archived: bool,
+    },
+    /// Show one record.
+    Show { id: uuid::Uuid },
+    /// Mark a record complete.
+    Complete { id: uuid::Uuid },
+    /// Defer a record until an RFC 3339 time.
+    Defer {
+        id: uuid::Uuid,
+        #[arg(long)]
+        until: String,
+    },
+    /// Archive a record.
+    Archive { id: uuid::Uuid },
+    /// Permanently delete a record.
+    Delete { id: uuid::Uuid },
+}
+
+/// A mail operation. Only messages named by ID are ever read.
+#[derive(Subcommand, Debug, Clone)]
+pub enum MailCommand {
+    /// Print the subject and body of the named messages.
+    Read {
+        #[arg(required = true)]
+        ids: Vec<String>,
+    },
+    /// Save a local draft that cites a message. Nothing is sent.
+    Draft {
+        /// The message the draft is about.
+        id: String,
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        text: String,
+        /// Draft a reply instead of a task.
+        #[arg(long)]
+        reply: bool,
+    },
+    /// Send a local draft after showing exactly what will be sent and asking
+    /// you to confirm. Needs an interactive terminal and a token that may send.
+    Send {
+        /// The draft to send.
+        id: u64,
+        /// The recipient address.
+        #[arg(long)]
+        to: String,
+    },
+    /// List local drafts.
+    Drafts,
+    /// Delete one local draft.
+    DeleteDraft { id: u64 },
+    /// Delete every local draft.
+    Forget,
+}
+
+/// A routine operation. Routines belong to the local owner and deliver to
+/// exactly one explicit chat.
+#[derive(Debug, Subcommand)]
+pub enum RoutineCommand {
+    /// Create a routine (it runs only while `lia serve` is running).
+    Create {
+        /// A name for the routine.
+        id: String,
+        /// When it runs, for example "every day at 9:00".
+        #[arg(long)]
+        when: String,
+        /// The IANA time zone the schedule is read in, for example Europe/Berlin.
+        #[arg(long)]
+        timezone: String,
+        /// The channel to deliver through, for example telegram.
+        #[arg(long)]
+        channel: String,
+        /// The one conversation in that channel to deliver to.
+        #[arg(long)]
+        conversation: String,
+        /// Include due tasks and reminders.
+        #[arg(long)]
+        due_items: bool,
+        /// Include scheduled jobs that run soon.
+        #[arg(long)]
+        upcoming_jobs: bool,
+        /// Include your own notes.
+        #[arg(long)]
+        approved_notes: bool,
+        /// Maximum briefing size in bytes.
+        #[arg(long, default_value = "8192")]
+        max_bytes: usize,
+    },
+    /// List routines and how their last delivery went.
+    List,
+    /// Stop a routine without forgetting it.
+    Pause { id: String },
+    /// Resume a paused routine from its next slot.
+    Resume { id: String },
+    /// Forget a routine.
+    Remove { id: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum InboxKind {
+    Inbox,
+    Task,
+    Note,
+    Reminder,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum InboxPriority {
+    Low,
+    Normal,
+    High,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum InboxState {
+    Open,
+    Done,
+    Archived,
 }
 
 /// Run the CLI.
@@ -457,6 +635,14 @@ pub async fn run(cli: Cli) -> Result<()> {
             }
             Ok(())
         }
+        Some(Command::Inbox { command }) => run_inbox(&config.state_dir, command),
+        Some(Command::Mail { command }) => run_mail(&config.state_dir, command).await,
+        Some(Command::Agenda { timezone }) => {
+            run_agenda(&config.state_dir, &timezone, chrono::Utc::now()).await
+        }
+        Some(Command::Routine { command }) => {
+            run_routine(&config.state_dir, command, chrono::Utc::now())
+        }
         Some(Command::Listen { seconds }) => listen(config, seconds).await,
         Some(Command::Speak { text }) => speak(config, text).await,
         Some(Command::Live { share }) => live(config, share).await,
@@ -482,6 +668,273 @@ pub async fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
     }
+}
+
+async fn run_mail(state_dir: &Path, command: MailCommand) -> Result<()> {
+    use crate::email::{DraftKind, DraftStore, MailScope};
+
+    let path = state_dir.join("mail").join("drafts.json");
+    let load = || {
+        if path.exists() {
+            DraftStore::load(&path)
+        } else {
+            Ok(DraftStore::new())
+        }
+    };
+    let save = |store: &DraftStore| -> Result<()> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        Ok(store.save(&path)?)
+    };
+    let now = chrono::Utc::now().timestamp().max(0) as u64;
+    match command {
+        MailCommand::Read { ids } => {
+            let (Some(session_url), Some(token)) = (
+                crate::secrets::var("LIA_JMAP_SESSION_URL"),
+                crate::secrets::var("LIA_JMAP_TOKEN"),
+            ) else {
+                anyhow::bail!("set LIA_JMAP_SESSION_URL and LIA_JMAP_TOKEN to read mail");
+            };
+            let scope = MailScope::new(ids)?;
+            let client =
+                crate::jmap::JmapClient::new(crate::jmap::JmapConfig { session_url, token })?;
+            for message in client.fetch_scoped(&scope).await? {
+                println!("--- message {} (untrusted content) ---", message.source_id);
+                println!("Subject: {}", message.subject.expose());
+                println!("{}", message.body.expose());
+            }
+        }
+        MailCommand::Draft {
+            id,
+            title,
+            text,
+            reply,
+        } => {
+            let mut store = load()?;
+            let scope = MailScope::new([id.clone()])?;
+            let kind = if reply {
+                DraftKind::Reply
+            } else {
+                DraftKind::Task
+            };
+            let draft = store.propose(&scope, kind, &[id.as_str()], &title, &text, now)?;
+            save(&store)?;
+            println!("saved draft {draft} (local only; nothing is sent)");
+        }
+        MailCommand::Send { id, to } => {
+            use std::io::{BufRead, IsTerminal, Write};
+
+            let (Some(session_url), Some(token)) = (
+                crate::secrets::var("LIA_JMAP_SESSION_URL"),
+                crate::secrets::var("LIA_JMAP_TOKEN"),
+            ) else {
+                anyhow::bail!("set LIA_JMAP_SESSION_URL and LIA_JMAP_TOKEN to send mail");
+            };
+            let interactive = std::io::stdin().is_terminal();
+            let store = load()?;
+            let draft = store
+                .get(id)
+                .ok_or_else(|| anyhow::anyhow!("no draft {id}"))?;
+            let action = crate::external_action::ExternalAction {
+                owner: crate::inbox_identity::LOCAL_OWNER_ID.to_owned(),
+                account: session_url.clone(),
+                target: to.clone(),
+                payload: format!("{}\n\n{}", draft.title, draft.text),
+                side_effects: "sends one email that cannot be recalled".to_owned(),
+            };
+            let gate = crate::external_action::ExternalActionGate::new(
+                std::time::Duration::from_secs(300),
+            );
+            let now = std::time::SystemTime::now();
+            let preview = gate.preview(&action, interactive, now)?;
+            println!(
+                "To: {}\nSubject: {}\n\n{}",
+                preview.target, draft.title, draft.text
+            );
+            println!("\n{}", preview.side_effects);
+            print!("Send this email? [y/N] ");
+            std::io::stdout().flush()?;
+            let mut answer = String::new();
+            std::io::stdin().lock().read_line(&mut answer)?;
+            if !answer.trim().eq_ignore_ascii_case("y") {
+                println!("not sent");
+                return Ok(());
+            }
+            gate.confirm(
+                &preview.id,
+                &action,
+                interactive,
+                std::time::SystemTime::now(),
+            )?;
+            let client =
+                crate::jmap::JmapClient::new(crate::jmap::JmapConfig { session_url, token })?;
+            let from = client.send_plain(&to, &draft.title, &draft.text).await?;
+            println!("sent from {from} to {to}");
+        }
+        MailCommand::Drafts => {
+            let store = load()?;
+            if store.list().is_empty() {
+                println!("no drafts");
+            }
+            for draft in store.list() {
+                println!(
+                    "{} [{:?}/{:?}] {} (from {})",
+                    draft.id,
+                    draft.kind,
+                    draft.status,
+                    draft.title,
+                    draft.source_ids.join(", ")
+                );
+                println!("  {}", draft.text);
+            }
+        }
+        MailCommand::DeleteDraft { id } => {
+            let mut store = load()?;
+            store.delete(id)?;
+            save(&store)?;
+            println!("deleted draft {id}");
+        }
+        MailCommand::Forget => {
+            let mut store = load()?;
+            store.disconnect();
+            save(&store)?;
+            println!("deleted every draft");
+        }
+    }
+    Ok(())
+}
+
+async fn run_agenda(
+    state_dir: &Path,
+    timezone: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<()> {
+    println!(
+        "{}",
+        crate::agenda::agenda_text(state_dir, timezone, now).await?
+    );
+    Ok(())
+}
+
+fn run_inbox(state_dir: &Path, command: InboxCommand) -> Result<()> {
+    use crate::inbox::{Filter, InboxStore, Kind, NewRecord, Priority, Provenance, State, Update};
+
+    let owner = crate::inbox::Owner::new(crate::inbox_identity::LOCAL_OWNER_ID)?;
+    let mut store = InboxStore::open(state_dir.join("inbox"))?;
+    match command {
+        InboxCommand::Capture {
+            text,
+            kind,
+            priority,
+            due_at,
+        } => {
+            let mut record = NewRecord::new(
+                match kind {
+                    InboxKind::Inbox => Kind::Inbox,
+                    InboxKind::Task => Kind::Task,
+                    InboxKind::Note => Kind::Note,
+                    InboxKind::Reminder => Kind::Reminder,
+                },
+                text,
+                Provenance::User,
+            );
+            record.priority = match priority {
+                InboxPriority::Low => Priority::Low,
+                InboxPriority::Normal => Priority::Normal,
+                InboxPriority::High => Priority::High,
+            };
+            record.due_at = due_at.as_deref().map(parse_inbox_time).transpose()?;
+            let record = store.create(&owner, record)?;
+            print_inbox_record(&record);
+        }
+        InboxCommand::List {
+            kind,
+            state,
+            include_archived,
+        } => {
+            let filter = Filter {
+                kind: kind.map(|kind| match kind {
+                    InboxKind::Inbox => Kind::Inbox,
+                    InboxKind::Task => Kind::Task,
+                    InboxKind::Note => Kind::Note,
+                    InboxKind::Reminder => Kind::Reminder,
+                }),
+                state: state.map(|state| match state {
+                    InboxState::Open => State::Open,
+                    InboxState::Done => State::Done,
+                    InboxState::Archived => State::Archived,
+                }),
+                include_archived,
+            };
+            let records = store.list(&owner, &filter);
+            if records.is_empty() {
+                println!("nothing in the inbox");
+            } else {
+                for record in records {
+                    print_inbox_record(&record);
+                }
+            }
+        }
+        InboxCommand::Show { id } => print_inbox_record(&store.get(&owner, id)?),
+        InboxCommand::Complete { id } => {
+            let record = store.update(
+                &owner,
+                id,
+                Update {
+                    state: Some(State::Done),
+                    ..Update::default()
+                },
+            )?;
+            print_inbox_record(&record);
+        }
+        InboxCommand::Defer { id, until } => {
+            let record = store.update(
+                &owner,
+                id,
+                Update {
+                    snoozed_until: Some(Some(parse_inbox_time(&until)?)),
+                    ..Update::default()
+                },
+            )?;
+            print_inbox_record(&record);
+        }
+        InboxCommand::Archive { id } => {
+            let record = store.update(
+                &owner,
+                id,
+                Update {
+                    state: Some(State::Archived),
+                    ..Update::default()
+                },
+            )?;
+            print_inbox_record(&record);
+        }
+        InboxCommand::Delete { id } => {
+            store.delete(&owner, id)?;
+            println!("deleted {id}");
+        }
+    }
+    Ok(())
+}
+
+fn parse_inbox_time(value: &str) -> Result<chrono::DateTime<chrono::Utc>> {
+    Ok(chrono::DateTime::parse_from_rfc3339(value)?.to_utc())
+}
+
+fn print_inbox_record(record: &crate::inbox::Record) {
+    let due = record
+        .due_at
+        .map(|due| format!("  (due {})", due.to_rfc3339()))
+        .unwrap_or_default();
+    let deferred = record
+        .snoozed_until
+        .map(|until| format!("  (deferred until {})", until.to_rfc3339()))
+        .unwrap_or_default();
+    println!(
+        "{}  [{:?}/{:?}/{:?}]  {}{}{}",
+        record.id, record.kind, record.state, record.priority, record.text, due, deferred
+    );
 }
 
 /// Check that everything is in place.
@@ -987,15 +1440,22 @@ pub fn build_tools(config: &Config) -> ToolRegistry {
     registry.register(Arc::new(MovePathTool::new(workspace.clone())));
     registry.register(Arc::new(PatchTool::new(workspace.clone())));
     registry.register(Arc::new(FormatFileTool::new(workspace.clone())));
-    registry.register(Arc::new(crate::tool::filesystem::GrepCodebaseTool::new(workspace.clone())));
-    registry.register(Arc::new(crate::tool::filesystem::FindSymbolsTool::new(workspace.clone())));
+    registry.register(Arc::new(crate::tool::filesystem::GrepCodebaseTool::new(
+        workspace.clone(),
+    )));
+    registry.register(Arc::new(crate::tool::filesystem::FindSymbolsTool::new(
+        workspace.clone(),
+    )));
     registry.register(Arc::new(crate::tool::filesystem::ReadUrlChunkedTool::new()));
     // The sandbox needs the workspace as an absolute path, so it can be
     // bound inside.
     let workspace =
         std::fs::canonicalize(&config.workspace).unwrap_or_else(|_| config.workspace.clone());
     let mut shell = ShellTool::new(config.workspace.to_string_lossy().to_string())
-        .with_sandbox(crate::tool::sandbox::Sandbox::new(config.sandbox.clone(), workspace))
+        .with_sandbox(crate::tool::sandbox::Sandbox::new(
+            config.sandbox.clone(),
+            workspace,
+        ))
         .with_timeout(std::time::Duration::from_secs(config.shell.timeout_seconds))
         .with_allowed(config.shell.allowed.clone());
     for denied in &config.shell.denied {
@@ -1113,6 +1573,14 @@ pub async fn build_agent(
         registry.register(Arc::new(crate::tool::memory::MemoryExportTool::new(
             memory.clone(),
         )));
+    }
+
+    if tools_enabled && config.tools_enabled && crate::tool::personal::enabled() {
+        use crate::tool::personal::{AgendaTool, InboxCaptureTool, InboxListTool, MailReadTool};
+        registry.register(Arc::new(InboxListTool::new(config.state_dir.clone())));
+        registry.register(Arc::new(InboxCaptureTool::new(config.state_dir.clone())));
+        registry.register(Arc::new(AgendaTool::new(config.state_dir.clone())));
+        registry.register(Arc::new(MailReadTool));
     }
 
     // The MCP servers are connected once, here, and their tools joined to the
@@ -1305,6 +1773,194 @@ async fn read_stdin() -> Result<String> {
     Ok(buffer)
 }
 
+/// How often `lia serve` checks for routines that are due.
+const ROUTINE_TICK: std::time::Duration = std::time::Duration::from_secs(30);
+/// The longest one check may take, so a stuck channel cannot stall later ones.
+const ROUTINE_TICK_LIMIT: std::time::Duration = std::time::Duration::from_secs(120);
+
+fn routine_status_line(status: &crate::routine::RoutineStatus) -> String {
+    use crate::routine::RunOutcome;
+    let outcome = match &status.last_outcome {
+        None => "never run".to_string(),
+        Some(RunOutcome::Delivered) => "delivered".into(),
+        Some(RunOutcome::Retrying { error }) => format!("retrying ({error})"),
+        Some(RunOutcome::Failed { error }) => format!("failed ({error})"),
+        Some(RunOutcome::Missed) => "missed".into(),
+    };
+    let last = status
+        .last_run
+        .map(|t| t.to_rfc3339())
+        .unwrap_or_else(|| "-".into());
+    let next = status
+        .next_run
+        .map(|t| t.to_rfc3339())
+        .unwrap_or_else(|| "-".into());
+    format!(
+        "{} [{}] {} ({}) -> {}:{} | last: {} at {} | next: {}",
+        status.id,
+        if status.enabled { "enabled" } else { "paused" },
+        status.schedule,
+        status.timezone,
+        status.target.channel,
+        status.target.conversation,
+        outcome,
+        last,
+        next,
+    )
+}
+
+pub fn run_routine(
+    state_dir: &Path,
+    command: RoutineCommand,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<()> {
+    use crate::routine::{NewRoutine, RoutineStore, RoutineTarget};
+
+    let mut store = RoutineStore::open(state_dir.join("routines"))?;
+    match command {
+        RoutineCommand::Create {
+            id,
+            when,
+            timezone,
+            channel,
+            conversation,
+            due_items,
+            upcoming_jobs,
+            approved_notes,
+            max_bytes,
+        } => {
+            let when = crate::schedule::parse_when(&when, now).map_err(anyhow::Error::msg)?;
+            let schedule =
+                crate::schedule::ZonedSchedule::new(when, &timezone).map_err(anyhow::Error::msg)?;
+            let status = store
+                .create(
+                    NewRoutine {
+                        id,
+                        owner: crate::inbox_identity::LOCAL_OWNER_ID.to_string(),
+                        schedule,
+                        sources: crate::briefing::BriefingSources {
+                            due_items,
+                            upcoming_jobs,
+                            approved_notes,
+                        },
+                        max_bytes,
+                        target: RoutineTarget {
+                            channel: channel.trim().to_string(),
+                            conversation: conversation.trim().to_string(),
+                        },
+                    },
+                    now,
+                )
+                .map_err(anyhow::Error::msg)?;
+            println!("created {}", routine_status_line(&status));
+        }
+        RoutineCommand::List => {
+            let statuses = store.statuses();
+            if statuses.is_empty() {
+                println!("no routines");
+            }
+            for status in &statuses {
+                println!("{}", routine_status_line(status));
+            }
+        }
+        RoutineCommand::Pause { id } => {
+            let status = store.pause(&id).map_err(anyhow::Error::msg)?;
+            println!("paused {}", routine_status_line(&status));
+        }
+        RoutineCommand::Resume { id } => {
+            let status = store.resume(&id, now).map_err(anyhow::Error::msg)?;
+            println!("resumed {}", routine_status_line(&status));
+        }
+        RoutineCommand::Remove { id } => {
+            if !store.remove(&id)? {
+                anyhow::bail!("no routine \"{id}\"");
+            }
+            println!("removed {id}");
+        }
+    }
+    Ok(())
+}
+
+/// Run what is due from the persisted routines. The stores are reloaded each
+/// time so changes made by `lia routine` take effect without a restart.
+pub async fn tick_routines(
+    state_dir: &Path,
+    scheduler: &crate::schedule::Scheduler,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Vec<crate::routine::RoutineStatus> {
+    let mut routines = match crate::routine::RoutineStore::open(state_dir.join("routines")) {
+        Ok(routines) => routines,
+        Err(e) => {
+            tracing::warn!("could not read the routines: {e}");
+            return Vec::new();
+        }
+    };
+    let inbox = crate::inbox::InboxStore::open(state_dir.join("inbox")).ok();
+    match tokio::time::timeout(
+        ROUTINE_TICK_LIMIT,
+        routines.tick_with_scheduler(now, inbox.as_ref(), scheduler),
+    )
+    .await
+    {
+        Ok(ran) => ran,
+        Err(_) => {
+            tracing::warn!("a routine check took too long and was stopped");
+            Vec::new()
+        }
+    }
+}
+
+/// Push due reminders to the chat named by `LIA_REMINDER_CHANNEL` and
+/// `LIA_REMINDER_CONVERSATION`. Without both, nothing is pushed.
+async fn push_due_reminders(
+    state_dir: &Path,
+    scheduler: &crate::schedule::Scheduler,
+    now: chrono::DateTime<chrono::Utc>,
+) {
+    let (Some(channel), Some(conversation)) = (
+        crate::secrets::var("LIA_REMINDER_CHANNEL"),
+        crate::secrets::var("LIA_REMINDER_CONVERSATION"),
+    ) else {
+        return;
+    };
+    let target = crate::routine::RoutineTarget {
+        channel,
+        conversation,
+    };
+    let Ok(owner) = crate::inbox::Owner::new(crate::inbox_identity::LOCAL_OWNER_ID) else {
+        return;
+    };
+    let Ok(mut store) = crate::inbox::InboxStore::open(state_dir.join("inbox")) else {
+        return;
+    };
+    let lookup = |name: &str| scheduler.channel(name);
+    let pass = crate::reminder::deliver_due(&mut store, &owner, now, &target, &lookup);
+    if tokio::time::timeout(ROUTINE_TICK_LIMIT, pass)
+        .await
+        .is_err()
+    {
+        tracing::warn!("a reminder check took too long and was stopped");
+    }
+}
+
+fn spawn_routine_loop(
+    state_dir: PathBuf,
+    scheduler: Arc<crate::schedule::Scheduler>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(ROUTINE_TICK);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            let now = chrono::Utc::now();
+            for status in tick_routines(&state_dir, &scheduler, now).await {
+                tracing::info!(routine = %status.id, "routine ran");
+            }
+            push_due_reminders(&state_dir, &scheduler, now).await;
+        }
+    })
+}
+
 /// Start the gateway, optionally with the Telegram channel attached.
 async fn serve_gateway(
     config: Config,
@@ -1381,9 +2037,80 @@ async fn serve_gateway(
         }
     }
 
+    // Started after the channels are registered, so a delivery can find them.
+    let routines = spawn_routine_loop(config.state_dir.clone(), scheduler.clone());
+
     // Wait for the gateway to shut down.
     let _ = tokio::signal::ctrl_c().await;
     println!("shutting down");
+    routines.abort();
     gateway.shutdown().await;
     Ok(())
+}
+
+#[cfg(test)]
+mod inbox_cli_tests {
+    use super::*;
+
+    #[test]
+    fn inbox_commands_share_local_owner_and_complete_workflow() {
+        let dir = tempfile::tempdir().unwrap();
+        let state_dir = dir.path();
+
+        run_inbox(
+            state_dir,
+            InboxCommand::Capture {
+                text: "  call the dentist  ".into(),
+                kind: InboxKind::Task,
+                priority: InboxPriority::High,
+                due_at: None,
+            },
+        )
+        .unwrap();
+
+        let owner = crate::inbox::Owner::new(crate::inbox_identity::LOCAL_OWNER_ID).unwrap();
+        let store = crate::inbox::InboxStore::open(state_dir.join("inbox")).unwrap();
+        let record = store
+            .list(&owner, &crate::inbox::Filter::default())
+            .into_iter()
+            .next()
+            .unwrap();
+        assert_eq!(record.text, "call the dentist");
+        assert_eq!(record.kind, crate::inbox::Kind::Task);
+        assert_eq!(record.priority, crate::inbox::Priority::High);
+        drop(store);
+
+        run_inbox(
+            state_dir,
+            InboxCommand::Defer {
+                id: record.id,
+                until: "2030-04-05T06:07:08Z".into(),
+            },
+        )
+        .unwrap();
+        run_inbox(state_dir, InboxCommand::Complete { id: record.id }).unwrap();
+        run_inbox(state_dir, InboxCommand::Archive { id: record.id }).unwrap();
+
+        let store = crate::inbox::InboxStore::open(state_dir.join("inbox")).unwrap();
+        let archived = store.get(&owner, record.id).unwrap();
+        assert_eq!(archived.state, crate::inbox::State::Archived);
+        assert_eq!(
+            archived.snoozed_until.unwrap().to_rfc3339(),
+            "2030-04-05T06:07:08+00:00"
+        );
+        drop(store);
+
+        run_inbox(state_dir, InboxCommand::Delete { id: record.id }).unwrap();
+        assert!(
+            crate::inbox::InboxStore::open(state_dir.join("inbox"))
+                .unwrap()
+                .get(&owner, record.id)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn inbox_time_requires_rfc3339() {
+        assert!(parse_inbox_time("tomorrow").is_err());
+    }
 }

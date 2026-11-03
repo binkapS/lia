@@ -26,23 +26,15 @@ pub const INDEX: &str = include_str!("../../web/index.html");
 pub const CSS: &[(&str, &str)] = &[
     ("base.css", include_str!("../../web/css/base.css")),
     ("chat.css", include_str!("../../web/css/chat.css")),
-    (
-        "composer.css",
-        include_str!("../../web/css/composer.css"),
-    ),
-    (
-        "overlays.css",
-        include_str!("../../web/css/overlays.css"),
-    ),
-    (
-        "controls.css",
-        include_str!("../../web/css/controls.css"),
-    ),
+    ("composer.css", include_str!("../../web/css/composer.css")),
+    ("overlays.css", include_str!("../../web/css/overlays.css")),
+    ("controls.css", include_str!("../../web/css/controls.css")),
     (
         "responsive.css",
         include_str!("../../web/css/responsive.css"),
     ),
     ("nexus.css", include_str!("../../web/css/nexus.css")),
+    ("inbox.css", include_str!("../../web/css/inbox.css")),
 ];
 
 /// The scripts, in the order the page loads them.
@@ -50,21 +42,16 @@ pub const JS: &[(&str, &str)] = &[
     ("core.js", include_str!("../../web/js/core.js")),
     ("chat.js", include_str!("../../web/js/chat.js")),
     ("input.js", include_str!("../../web/js/input.js")),
-    (
-        "commands.js",
-        include_str!("../../web/js/commands.js"),
-    ),
+    ("commands.js", include_str!("../../web/js/commands.js")),
     ("voice.js", include_str!("../../web/js/voice.js")),
     ("media.js", include_str!("../../web/js/media.js")),
     ("send.js", include_str!("../../web/js/send.js")),
-    (
-        "markdown.js",
-        include_str!("../../web/js/markdown.js"),
-    ),
+    ("markdown.js", include_str!("../../web/js/markdown.js")),
     ("welcome.js", include_str!("../../web/js/welcome.js")),
     ("effects.js", include_str!("../../web/js/effects.js")),
     ("nexus.js", include_str!("../../web/js/nexus.js")),
     ("boot.js", include_str!("../../web/js/boot.js")),
+    ("inbox.js", include_str!("../../web/js/inbox.js")),
 ];
 
 /// Serve the page.
@@ -101,10 +88,9 @@ pub async fn asset_file(Path(name): Path<String>) -> Response {
     };
 
     let mut response = body.into_response();
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static(content_type),
-    );
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
     // The binary may have been rebuilt under a running browser. Asking
     // for the file again is cheap; showing yesterday's interface is not.
     response

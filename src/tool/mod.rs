@@ -12,6 +12,7 @@ pub mod approval;
 pub mod fetch;
 pub mod filesystem;
 pub mod memory;
+pub mod personal;
 pub mod sandbox;
 pub mod schedule;
 pub mod search;

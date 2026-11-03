@@ -29,6 +29,17 @@ lia serve                    # gateway + the channels the environment or setup c
 | `GET /v1/sessions/{id}` | fetch one session |
 | `DELETE /v1/sessions/{id}` | delete a session |
 | `POST /v1/sessions/{id}/messages` | send a message, get the reply |
+| `GET /v1/inbox` | list the local user's records (`kind`, `state`, `include_archived` filters) |
+| `POST /v1/inbox` | capture a record (`text`, optional `kind`, `priority`, `due_at`) |
+| `GET /v1/inbox/{id}` | fetch one record |
+| `PATCH /v1/inbox/{id}` | update its `state` or `text` |
+| `POST /v1/inbox/{id}/defer` | defer it with an RFC 3339 `until` time |
+| `DELETE /v1/inbox/{id}` | permanently delete it |
+
+Inbox routes use the gateway's normal bearer-token middleware. The token grants
+access to one explicit local owner shared with `lia inbox`; no owner ID is
+accepted from the request. Channel and agent tool identities are not connected
+to this store.
 
 ```sh
 curl -s localhost:8787/health
@@ -112,6 +123,10 @@ around an orb that pulses with what the machine is doing; the COMMAND
 CONSOLE on the right holds the quick commands and the composer; and the
 dock at the bottom opens the microphone and the drawers. The sessions live
 in a drawer, so the deck stays quiet during a run.
+
+The top-bar **inbox** button opens a compact panel for capture, listing,
+completion, deferral, archiving, and deletion. It uses the authenticated
+`/v1/inbox` API and shares its local records with the CLI.
 
 The source is split across `web/`: `index.html` is the markup, `css/` the
 stylesheets, `js/` the behaviour, one file per part of the page. The

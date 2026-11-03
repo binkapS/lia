@@ -23,6 +23,12 @@
 //! | `GET  /v1/sessions/{id}` | fetch one session |
 //! | `DELETE /v1/sessions/{id}` | delete a session |
 //! | `POST /v1/sessions/{id}/messages` | send a message, get the reply |
+//! | `GET  /v1/inbox` | list the local user's inbox records |
+//! | `POST /v1/inbox` | capture a record |
+//! | `GET  /v1/inbox/{id}` | fetch one inbox record |
+//! | `PATCH /v1/inbox/{id}` | update state or text |
+//! | `POST /v1/inbox/{id}/defer` | defer an inbox record |
+//! | `DELETE /v1/inbox/{id}` | delete an inbox record |
 //! | `WS   /v1/ws` | send messages, receive streaming events |
 //!
 //! The WebSocket protocol is newline-delimited JSON: each frame is one

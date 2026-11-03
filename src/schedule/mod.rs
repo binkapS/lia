@@ -10,6 +10,7 @@
 
 pub mod cron;
 pub mod when;
+pub mod zoned;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -24,6 +25,7 @@ use crate::channel::{APPROVAL_TIMEOUT, Approvers, Channel, OutboundMessage};
 
 pub use cron::{CronSpec, parse_cron};
 pub use when::{When, parse_when};
+pub use zoned::ZonedSchedule;
 
 /// How often the scheduler looks for work.
 const TICK: std::time::Duration = std::time::Duration::from_secs(30);
@@ -275,6 +277,11 @@ impl Scheduler {
     pub fn add_channel(&self, channel: Arc<dyn Channel>) {
         let mut channels = self.channels.lock().unwrap();
         channels.insert(channel.name().to_string(), channel);
+    }
+
+    /// The registered platform with this name.
+    pub fn channel(&self, name: &str) -> Option<Arc<dyn Channel>> {
+        self.channels.lock().unwrap().get(name).cloned()
     }
 
     /// Send the answers that have nowhere else to go here.

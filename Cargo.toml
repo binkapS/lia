@@ -69,6 +69,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 libc = "0.2"
 dirs = "6"
 chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = { version = "0.10", features = ["serde"] }
 glob = "0.3"
 walkdir = "2"
 shell-words = "1"
@@ -76,6 +77,8 @@ globset = "0.4"
 similar = "2"
 sha2 = "0.10"
 regex = "1"
+# Multistatus responses from CalDAV servers.
+quick-xml = "0.38"
 ptts = { version = "0.4.2", features = ["hf", "hub"] }
 
 [dev-dependencies]

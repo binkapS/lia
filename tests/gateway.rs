@@ -22,6 +22,7 @@ struct TestGateway {
     /// A configuration file of its own, so editing settings in a test
     /// never touches the real one.
     config_path: std::path::PathBuf,
+    _state_dir: tempfile::TempDir,
 }
 
 impl TestGateway {
@@ -47,11 +48,12 @@ impl TestGateway {
             AgentConfig::default(),
         );
 
-        let config_path =
-            std::env::temp_dir().join(format!("lia-gateway-config-{}.toml", uuid::Uuid::new_v4()));
+        let state_dir = tempfile::tempdir().unwrap();
+        let config_path = state_dir.path().join("config.toml");
         let mut config = Config::default();
         config.gateway.host = "127.0.0.1".into();
         config.gateway.port = 0;
+        config.state_dir = state_dir.path().to_path_buf();
         config.config_path = Some(config_path.clone());
         edit(&mut config);
 
@@ -67,6 +69,7 @@ impl TestGateway {
             address: gateway.addr(),
             provider,
             config_path,
+            _state_dir: state_dir,
         }
     }
 
@@ -442,6 +445,117 @@ async fn a_bad_setting_is_refused() {
     );
 }
 
+#[tokio::test]
+async fn inbox_data_routes_require_auth_and_keep_the_local_owner() {
+    let gateway = TestGateway::start_with_token(Some("secret")).await;
+    let client = reqwest::Client::new();
+
+    let refused = client.get(gateway.url("/v1/inbox")).send().await.unwrap();
+    assert_eq!(refused.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let refused = client
+        .post(gateway.url("/v1/inbox"))
+        .bearer_auth("wrong")
+        .json(&json!({"text": "not stored"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+    let response = client
+        .post(gateway.url("/v1/inbox"))
+        .bearer_auth("secret")
+        .json(&json!({
+            "text": "review the launch plan",
+            "kind": "task",
+            "priority": "high",
+            "owner": "caller-selected-owner"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::CREATED);
+    let record: Value = response.json().await.unwrap();
+    assert_eq!(record["text"], "review the launch plan");
+    assert_eq!(record["owner"], "local");
+    let id = record["id"].as_str().unwrap();
+
+    let listed: Value = client
+        .get(gateway.url("/v1/inbox?kind=task"))
+        .bearer_auth("secret")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(listed.as_array().unwrap().len(), 1);
+    assert_eq!(listed[0]["id"], id);
+
+    let done: Value = client
+        .patch(gateway.url(&format!("/v1/inbox/{id}")))
+        .bearer_auth("secret")
+        .json(&json!({"state": "done"}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(done["state"], "done");
+    assert!(done["completed_at"].is_string());
+
+    let deferred: Value = client
+        .post(gateway.url(&format!("/v1/inbox/{id}/defer")))
+        .bearer_auth("secret")
+        .json(&json!({"until": "2030-04-05T06:07:08Z"}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(deferred["snoozed_until"].is_string());
+
+    let archived: Value = client
+        .patch(gateway.url(&format!("/v1/inbox/{id}")))
+        .bearer_auth("secret")
+        .json(&json!({"state": "archived"}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(archived["state"], "archived");
+    assert!(archived["archived_at"].is_string());
+
+    let visible: Value = client
+        .get(gateway.url("/v1/inbox?include_archived=true"))
+        .bearer_auth("secret")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(visible.as_array().unwrap().len(), 1);
+
+    let deleted = client
+        .delete(gateway.url(&format!("/v1/inbox/{id}")))
+        .bearer_auth("secret")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(deleted.status(), reqwest::StatusCode::NO_CONTENT);
+    let missing = client
+        .get(gateway.url(&format!("/v1/inbox/{id}")))
+        .bearer_auth("secret")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), reqwest::StatusCode::NOT_FOUND);
+}
+
 /// The gateway serves the interface, in the browser.
 #[tokio::test]
 async fn the_page_is_served() {
@@ -503,6 +617,12 @@ async fn the_page_is_served() {
             .contains("text/css"),
         "the stylesheet has the wrong type"
     );
+    for asset in ["inbox.css", "inbox.js"] {
+        let response = reqwest::get(gateway.url(&format!("/assets/{asset}")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::OK, "{asset}");
+    }
 }
 
 #[tokio::test]

@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="/assets/controls.css">
 <link rel="stylesheet" href="/assets/responsive.css">
 <link rel="stylesheet" href="/assets/nexus.css">
+<link rel="stylesheet" href="/assets/inbox.css">
 </head>
 <body>
 <canvas id="field" aria-hidden="true"></canvas>
@@ -72,6 +73,7 @@
         <b id="clock">--:--:--</b>
         <small id="clockDate">awaiting sync</small>
       </div>
+      <button class="inbox-open" id="inbox-open" type="button">inbox</button>
       <button class="icon-button" id="configButton" title="configuration" aria-label="configuration">⚙</button>
       <button class="icon-button" id="theme" title="switch the light" aria-label="switch theme">◐</button>
     </div>
@@ -445,6 +447,42 @@
   </form>
 </div>
 
+<div class="inbox-overlay" id="inbox-overlay" hidden>
+  <section class="inbox-panel" role="dialog" aria-modal="true" aria-labelledby="inbox-title">
+    <header class="inbox-heading">
+      <div>
+        <div class="inbox-kicker">PERSONAL STORAGE</div>
+        <h2 id="inbox-title">Inbox</h2>
+      </div>
+      <button type="button" class="inbox-close" id="inbox-close" aria-label="close inbox">×</button>
+    </header>
+    <form class="inbox-capture" id="inbox-capture">
+      <label class="sr-only" for="inbox-text">Remember something</label>
+      <input id="inbox-text" name="text" maxlength="4000" placeholder="Capture a thought or task…" required>
+      <div class="inbox-capture-options">
+        <select id="inbox-kind" aria-label="record type">
+          <option value="inbox">inbox</option>
+          <option value="task">task</option>
+          <option value="note">note</option>
+          <option value="reminder">reminder</option>
+        </select>
+        <select id="inbox-priority" aria-label="priority">
+          <option value="normal">normal priority</option>
+          <option value="high">high priority</option>
+          <option value="low">low priority</option>
+        </select>
+        <button class="primary" type="submit">capture</button>
+      </div>
+    </form>
+    <div class="inbox-toolbar">
+      <span id="inbox-count">loading…</span>
+      <label><input id="inbox-archived" type="checkbox"> include archived</label>
+    </div>
+    <div class="inbox-status" id="inbox-status" role="status" aria-live="polite"></div>
+    <ol class="inbox-list" id="inbox-list"></ol>
+  </section>
+</div>
+
 <script src="/assets/core.js"></script>
 <script src="/assets/chat.js"></script>
 <script src="/assets/input.js"></script>
@@ -456,6 +494,7 @@
 <script src="/assets/welcome.js"></script>
 <script src="/assets/effects.js"></script>
 <script src="/assets/nexus.js"></script>
+<script src="/assets/inbox.js"></script>
 <script src="/assets/boot.js"></script>
 </body>
 </html>

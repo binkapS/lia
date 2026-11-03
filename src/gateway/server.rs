@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -22,6 +22,11 @@ use crate::gateway::protocol::{
     SessionSummary, SystemStatus, WireEvent, split_event,
 };
 use crate::gateway::web;
+use crate::inbox::{
+    Filter as InboxFilter, InboxError, InboxStore, Kind as InboxKind, NewRecord, Owner,
+    Priority as InboxPriority, Provenance, Record as InboxRecord, State as InboxRecordState,
+    Update as InboxUpdate,
+};
 use crate::tool::approval::{ApprovalDecision, ApprovalRequest};
 
 /// Everything the server needs.
@@ -30,6 +35,8 @@ pub struct GatewayState {
     pub agent: Arc<Agent>,
     pub runner: Arc<SessionRunner>,
     pub sessions: Arc<Mutex<SessionStore>>,
+    /// The local user's personal inbox, shared with the local CLI.
+    pub inbox: Arc<Mutex<InboxStore>>,
     pub config: Arc<Config>,
     /// The voice, built once for the gateway so in-process Phonon is shared.
     pub voice: Option<Arc<crate::voice::Voice>>,
@@ -57,6 +64,9 @@ impl Gateway {
         let token = config.gateway.token.clone();
 
         let runner = SessionRunner::new(agent.clone(), sessions.clone());
+        let inbox = Arc::new(Mutex::new(InboxStore::open(
+            config.state_dir.join("inbox"),
+        )?));
 
         let skills = config.discover_skills().len();
         let voice = if config.voice.enabled {
@@ -73,6 +83,7 @@ impl Gateway {
             agent,
             runner,
             sessions,
+            inbox,
             config: config.clone(),
             voice,
             skills,
@@ -90,6 +101,14 @@ impl Gateway {
             .route("/v1/sessions", get(list_sessions).post(create_session))
             .route("/v1/sessions/{id}", get(get_session).delete(delete_session))
             .route("/v1/sessions/{id}/messages", post(send_message))
+            .route("/v1/inbox", get(list_inbox).post(capture_inbox))
+            .route(
+                "/v1/inbox/{id}",
+                get(get_inbox_record)
+                    .patch(update_inbox_record)
+                    .delete(delete_inbox_record),
+            )
+            .route("/v1/inbox/{id}/defer", post(defer_inbox_record))
             .route("/v1/audio/speech", post(synthesize_speech))
             .route("/v1/audio/voices", get(list_voices))
             .route("/v1/ws", get(websocket))
@@ -278,6 +297,154 @@ async fn system_status(State(state): State<GatewayState>) -> Json<SystemStatus> 
             skills: state.skills,
         },
     })
+}
+
+#[derive(Debug, Deserialize)]
+struct InboxListQuery {
+    kind: Option<InboxKind>,
+    state: Option<InboxRecordState>,
+    #[serde(default)]
+    include_archived: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct CaptureInboxRequest {
+    text: String,
+    #[serde(default = "default_inbox_kind")]
+    kind: InboxKind,
+    #[serde(default = "default_inbox_priority")]
+    priority: InboxPriority,
+    #[serde(default)]
+    due_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateInboxRequest {
+    #[serde(default)]
+    state: Option<InboxRecordState>,
+    #[serde(default)]
+    text: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeferInboxRequest {
+    until: chrono::DateTime<chrono::Utc>,
+}
+
+fn default_inbox_kind() -> InboxKind {
+    InboxKind::Inbox
+}
+
+fn default_inbox_priority() -> InboxPriority {
+    InboxPriority::Normal
+}
+
+fn inbox_error(error: InboxError) -> Response {
+    let (status, message) = match error {
+        InboxError::NotFound => (StatusCode::NOT_FOUND, "no such inbox record".to_string()),
+        InboxError::Invalid(reason) => (StatusCode::BAD_REQUEST, reason.to_string()),
+        other => (StatusCode::INTERNAL_SERVER_ERROR, other.to_string()),
+    };
+    (status, Json(ErrorResponse::new(message))).into_response()
+}
+
+fn local_inbox_owner() -> Owner {
+    Owner::new(crate::inbox_identity::LOCAL_OWNER_ID)
+        .expect("the built-in local inbox identity is valid")
+}
+
+async fn list_inbox(
+    State(state): State<GatewayState>,
+    Query(query): Query<InboxListQuery>,
+) -> Json<Vec<InboxRecord>> {
+    let filter = InboxFilter {
+        kind: query.kind,
+        state: query.state,
+        include_archived: query.include_archived,
+    };
+    let inbox = state.inbox.lock().await;
+    Json(inbox.list(&local_inbox_owner(), &filter))
+}
+
+async fn capture_inbox(
+    State(state): State<GatewayState>,
+    Json(request): Json<CaptureInboxRequest>,
+) -> Response {
+    let new = NewRecord {
+        kind: request.kind,
+        text: request.text,
+        priority: request.priority,
+        due_at: request.due_at,
+        snoozed_until: None,
+        source: Default::default(),
+        provenance: Provenance::User,
+    };
+    let mut inbox = state.inbox.lock().await;
+    match inbox.create(&local_inbox_owner(), new) {
+        Ok(record) => (StatusCode::CREATED, Json(record)).into_response(),
+        Err(error) => inbox_error(error),
+    }
+}
+
+async fn get_inbox_record(
+    State(state): State<GatewayState>,
+    Path(id): Path<uuid::Uuid>,
+) -> Response {
+    let inbox = state.inbox.lock().await;
+    match inbox.get(&local_inbox_owner(), id) {
+        Ok(record) => Json(record).into_response(),
+        Err(error) => inbox_error(error),
+    }
+}
+
+async fn update_inbox_record(
+    State(state): State<GatewayState>,
+    Path(id): Path<uuid::Uuid>,
+    Json(request): Json<UpdateInboxRequest>,
+) -> Response {
+    let mut inbox = state.inbox.lock().await;
+    match inbox.update(
+        &local_inbox_owner(),
+        id,
+        InboxUpdate {
+            state: request.state,
+            text: request.text,
+            ..InboxUpdate::default()
+        },
+    ) {
+        Ok(record) => Json(record).into_response(),
+        Err(error) => inbox_error(error),
+    }
+}
+
+async fn defer_inbox_record(
+    State(state): State<GatewayState>,
+    Path(id): Path<uuid::Uuid>,
+    Json(request): Json<DeferInboxRequest>,
+) -> Response {
+    let mut inbox = state.inbox.lock().await;
+    match inbox.update(
+        &local_inbox_owner(),
+        id,
+        InboxUpdate {
+            snoozed_until: Some(Some(request.until)),
+            ..InboxUpdate::default()
+        },
+    ) {
+        Ok(record) => Json(record).into_response(),
+        Err(error) => inbox_error(error),
+    }
+}
+
+async fn delete_inbox_record(
+    State(state): State<GatewayState>,
+    Path(id): Path<uuid::Uuid>,
+) -> Response {
+    let mut inbox = state.inbox.lock().await;
+    match inbox.delete(&local_inbox_owner(), id) {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => inbox_error(error),
+    }
 }
 
 async fn list_models(State(state): State<GatewayState>) -> Response {

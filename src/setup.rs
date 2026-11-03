@@ -115,6 +115,8 @@ const KNOWN: &[(&str, &str)] = &[
     ("LIA_GATEWAY_TOKEN", "gateway token"),
     ("LIA_SPEAK_API_KEY", "speech endpoint key"),
     ("LIA_TRANSCRIBE_API_KEY", "transcription endpoint key"),
+    ("LIA_JMAP_TOKEN", "JMAP mail API token"),
+    ("LIA_CALDAV_PASSWORD", "CalDAV password"),
     ("TELEGRAM_BOT_TOKEN", "Telegram bot token"),
     ("TELEGRAM_ALLOWED_CHATS", "Telegram allowed chats"),
     ("DISCORD_BOT_TOKEN", "Discord bot token"),
