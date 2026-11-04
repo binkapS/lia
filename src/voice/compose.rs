@@ -89,9 +89,7 @@ fn picture_link() -> &'static Regex {
 /// A bare address: pointed at, not spelled out.
 fn bare_link() -> &'static Regex {
     static LINK: OnceLock<Regex> = OnceLock::new();
-    LINK.get_or_init(|| {
-        Regex::new(r"(?i)(^|[\s(])(?:https?://|www\.)[^\s>)\]]+").unwrap()
-    })
+    LINK.get_or_init(|| Regex::new(r"(?i)(^|[\s(])(?:https?://|www\.)[^\s>)\]]+").unwrap())
 }
 
 /// A heading mark at the front of a line.
@@ -177,7 +175,7 @@ pub fn speakable(text: &str) -> String {
         .replace("≥", " at least ")
         .replace("≤", " at most ")
         /* Mid-sentence separators pause like a spoken breath, not a
-           beep. */
+        beep. */
         .replace(['·', '•', '–'], ", ")
         .replace("—", " — ")
         .replace('~', " about ")
@@ -277,9 +275,7 @@ impl SpeechComposer {
         self.rng ^= self.rng >> 12;
         self.rng ^= self.rng << 25;
         self.rng ^= self.rng >> 27;
-        self.rng
-            .wrapping_mul(0x2545F4914F6CDD1D)
-            .swap_bytes()
+        self.rng.wrapping_mul(0x2545F4914F6CDD1D).swap_bytes()
     }
 
     fn pick(&mut self, options: &[&'static str]) -> &'static str {
@@ -318,10 +314,7 @@ impl SpeechComposer {
             return Vec::new();
         }
         /* A table's rule row is punctuation, not prose. */
-        if text
-            .chars()
-            .all(|ch| matches!(ch, '|' | '-' | ':' | ' '))
-        {
+        if text.chars().all(|ch| matches!(ch, '|' | '-' | ':' | ' ')) {
             return Vec::new();
         }
         if let Some(item) = bullet().captures(text).and_then(|caps| caps.get(1)) {
@@ -331,7 +324,7 @@ impl SpeechComposer {
         }
         let mut said = self.flush();
         /* A wide table is a picture in the transcript, not a paragraph.
-           The first row names it; the rest are the same picture. */
+        The first row names it; the rest are the same picture. */
         let cells = text
             .split('|')
             .filter(|part| !part.trim().is_empty())
@@ -370,7 +363,7 @@ impl SpeechComposer {
         };
         let rest = total.saturating_sub(said.len());
         /* "First, …" already opens like a person would, but a list that
-           opens the whole reply deserves its own courtesy first. */
+        opens the whole reply deserves its own courtesy first. */
         let opened = self.lead && said.len() > 1;
         self.lead = false;
         let mut out = Vec::new();
@@ -413,7 +406,7 @@ impl SpeechComposer {
     fn spoken_line(&mut self, text: &str) -> String {
         let mut out = clean(&speakable(text));
         /* A line that ends in a colon is a heading; the voice drops it
-           there. */
+        there. */
         out = out.trim_end_matches([':', ';']).to_string();
         if out.is_empty() {
             return String::new();

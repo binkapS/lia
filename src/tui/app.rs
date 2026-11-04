@@ -1244,9 +1244,7 @@ impl App {
         if let Some(runner) = self.runner.clone() {
             let _ = runner.create_session(&id).await;
             if let Some(tx) = self.approval_tx.clone() {
-                runner
-                    .set_approver(&id, Arc::new(TuiApprover { tx }))
-                    .await;
+                runner.set_approver(&id, Arc::new(TuiApprover { tx })).await;
             }
         }
         self.adopt_new_session(id);
@@ -1260,7 +1258,8 @@ impl App {
     /// Common tail of session creation, used by both the async path and the
     /// slash command (which cannot await the runner).
     fn adopt_new_session(&mut self, id: String) {
-        self.sessions.insert(0, (id.clone(), "New session".to_string()));
+        self.sessions
+            .insert(0, (id.clone(), "New session".to_string()));
         self.session_index = 0;
         self.session_id = id;
         self.transcript.clear();
@@ -1757,13 +1756,13 @@ impl App {
             text.push_str(&next);
         }
         if worker.commands.try_send(VoiceCommand::Speak(text)).is_ok() {
-                self.speech_in_flight = true;
-                if !self.listening {
-                    self.voice_state = VoiceState::Speaking;
-                }
-            } else {
-                self.speech_queue.clear();
+            self.speech_in_flight = true;
+            if !self.listening {
+                self.voice_state = VoiceState::Speaking;
             }
+        } else {
+            self.speech_queue.clear();
+        }
     }
 
     /// Open the microphone again once every queued word has been said.

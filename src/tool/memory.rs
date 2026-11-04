@@ -240,9 +240,13 @@ impl MemoryUpsertTool {
 
 #[async_trait]
 impl Tool for MemoryUpsertTool {
-    fn name(&self) -> &str { "memory_upsert" }
+    fn name(&self) -> &str {
+        "memory_upsert"
+    }
 
-    fn description(&self) -> &str { "Upsert a fact into memory, avoiding duplicates." }
+    fn description(&self) -> &str {
+        "Upsert a fact into memory, avoiding duplicates."
+    }
 
     fn parameters(&self) -> Value {
         json!({
@@ -260,17 +264,45 @@ impl Tool for MemoryUpsertTool {
     }
 
     async fn run(&self, args: Value) -> Result<ToolOutput> {
-        let name = args.get("file").or_else(|| args.get("name")).or_else(|| args.get("target")).and_then(Value::as_str).unwrap_or("MEMORY.md");
-        let mut text = args.get("text").or_else(|| args.get("content")).or_else(|| args.get("fact")).or_else(|| args.get("value")).and_then(Value::as_str).unwrap_or("").to_string();
+        let name = args
+            .get("file")
+            .or_else(|| args.get("name"))
+            .or_else(|| args.get("target"))
+            .and_then(Value::as_str)
+            .unwrap_or("MEMORY.md");
+        let mut text = args
+            .get("text")
+            .or_else(|| args.get("content"))
+            .or_else(|| args.get("fact"))
+            .or_else(|| args.get("value"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         if let Some(key) = args.get("key").and_then(Value::as_str) {
             let val = args.get("value").and_then(Value::as_str).unwrap_or("");
             text = format!("{key}: {val}");
         }
         if text.trim().is_empty() {
-            return Err(ToolError::InvalidArgs { tool: self.name().into(), reason: "missing text".into() });
+            return Err(ToolError::InvalidArgs {
+                tool: self.name().into(),
+                reason: "missing text".into(),
+            });
         }
-        let origin = args.get("__origin").and_then(Value::as_str).map(|o| match o { "owner"=>Origin::Owner, "agent"=>Origin::Agent, "untrusted"=>Origin::Untrusted, "system"=>Origin::System, _=>Origin::Agent }).unwrap_or(Origin::Agent);
-        let msg = self.store.upsert_fact(name, &text, origin).map_err(|e| ToolError::Failed(self.name().into(), e.to_string()))?;
+        let origin = args
+            .get("__origin")
+            .and_then(Value::as_str)
+            .map(|o| match o {
+                "owner" => Origin::Owner,
+                "agent" => Origin::Agent,
+                "untrusted" => Origin::Untrusted,
+                "system" => Origin::System,
+                _ => Origin::Agent,
+            })
+            .unwrap_or(Origin::Agent);
+        let msg = self
+            .store
+            .upsert_fact(name, &text, origin)
+            .map_err(|e| ToolError::Failed(self.name().into(), e.to_string()))?;
         Ok(ToolOutput::ok(msg))
     }
 }
@@ -288,9 +320,13 @@ impl MemoryImportTool {
 
 #[async_trait]
 impl Tool for MemoryImportTool {
-    fn name(&self) -> &str { "memory_import" }
+    fn name(&self) -> &str {
+        "memory_import"
+    }
 
-    fn description(&self) -> &str { "Import memory from JSON or plain text." }
+    fn description(&self) -> &str {
+        "Import memory from JSON or plain text."
+    }
 
     fn parameters(&self) -> Value {
         json!({
@@ -305,11 +341,23 @@ impl Tool for MemoryImportTool {
     }
 
     async fn run(&self, args: Value) -> Result<ToolOutput> {
-        let data = args.get("content").or_else(|| args.get("data")).or_else(|| args.get("json")).or_else(|| args.get("text")).and_then(Value::as_str).unwrap_or("");
+        let data = args
+            .get("content")
+            .or_else(|| args.get("data"))
+            .or_else(|| args.get("json"))
+            .or_else(|| args.get("text"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
         if data.trim().is_empty() {
-            return Err(ToolError::InvalidArgs { tool: self.name().into(), reason: "missing content".into() });
+            return Err(ToolError::InvalidArgs {
+                tool: self.name().into(),
+                reason: "missing content".into(),
+            });
         }
-        let msg = self.store.import_memory(data, Origin::Agent).map_err(|e| ToolError::Failed(self.name().into(), e.to_string()))?;
+        let msg = self
+            .store
+            .import_memory(data, Origin::Agent)
+            .map_err(|e| ToolError::Failed(self.name().into(), e.to_string()))?;
         Ok(ToolOutput::ok(msg))
     }
 }
@@ -327,11 +375,17 @@ impl MemoryExportTool {
 
 #[async_trait]
 impl Tool for MemoryExportTool {
-    fn name(&self) -> &str { "memory_export" }
+    fn name(&self) -> &str {
+        "memory_export"
+    }
 
-    fn description(&self) -> &str { "Export all memory as JSON." }
+    fn description(&self) -> &str {
+        "Export all memory as JSON."
+    }
 
-    fn parameters(&self) -> Value { json!({ "type":"object", "properties":{} }) }
+    fn parameters(&self) -> Value {
+        json!({ "type":"object", "properties":{} })
+    }
 
     async fn run(&self, _args: Value) -> Result<ToolOutput> {
         Ok(ToolOutput::ok(self.store.export_memory()))

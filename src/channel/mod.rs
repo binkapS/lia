@@ -661,10 +661,7 @@ pub fn spawn_channels(
                 if let Err(e) = sender.send(&message).await {
                     // A reply the platform refused is not a warning: the
                     // sender is left waiting for words that never come.
-                    tracing::error!(
-                        "auto-reply delivery failed on {}: {e}",
-                        sender.name()
-                    );
+                    tracing::error!("auto-reply delivery failed on {}: {e}", sender.name());
                 }
             }
         }));

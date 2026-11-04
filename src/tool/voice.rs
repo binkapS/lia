@@ -173,11 +173,17 @@ impl VoiceHealthTool {
 
 #[async_trait]
 impl Tool for VoiceHealthTool {
-    fn name(&self) -> &str { "voice_health" }
+    fn name(&self) -> &str {
+        "voice_health"
+    }
 
-    fn description(&self) -> &str { "Check whether listening and speaking are available." }
+    fn description(&self) -> &str {
+        "Check whether listening and speaking are available."
+    }
 
-    fn parameters(&self) -> Value { json!({ "type":"object", "properties":{} }) }
+    fn parameters(&self) -> Value {
+        json!({ "type":"object", "properties":{} })
+    }
 
     async fn run(&self, _args: Value) -> Result<ToolOutput> {
         let content = format!(

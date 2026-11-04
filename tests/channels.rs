@@ -372,9 +372,8 @@ mod whatsapp {
     #[tokio::test]
     async fn a_pairing_code_lets_a_number_in() {
         let state = tempfile::tempdir().unwrap();
-        let store = Arc::new(
-            PairingStore::open(state.path().join("pairing.db")).expect("the store opens"),
-        );
+        let store =
+            Arc::new(PairingStore::open(state.path().join("pairing.db")).expect("the store opens"));
 
         let channel = WhatsAppChannel::new(state.path().join("whatsapp.db"), Vec::new())
             .with_pairing(store.clone());

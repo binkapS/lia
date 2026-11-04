@@ -207,21 +207,37 @@ impl WebSearchTool {
     async fn get(&self, url: &str) -> Result<String> {
         let mut last = None;
         for attempt in 0..3 {
-            if attempt > 0 { tokio::time::sleep(std::time::Duration::from_millis(200 * attempt as u64)).await; }
-            let resp = self.client.get(url).header(reqwest::header::USER_AGENT, &self.user_agent).send().await;
+            if attempt > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(200 * attempt as u64)).await;
+            }
+            let resp = self
+                .client
+                .get(url)
+                .header(reqwest::header::USER_AGENT, &self.user_agent)
+                .send()
+                .await;
             match resp {
                 Ok(response) => {
                     let status = response.status();
                     if !status.is_success() {
-                        last = Some(ToolError::Failed(self.name().into(), format!("HTTP {}", status.as_u16())));
+                        last = Some(ToolError::Failed(
+                            self.name().into(),
+                            format!("HTTP {}", status.as_u16()),
+                        ));
                         continue;
                     }
                     match response.text().await {
                         Ok(t) => return Ok(t),
-                        Err(e) => { last = Some(ToolError::Failed(self.name().into(), e.to_string())); continue; }
+                        Err(e) => {
+                            last = Some(ToolError::Failed(self.name().into(), e.to_string()));
+                            continue;
+                        }
                     }
                 }
-                Err(e) => { last = Some(ToolError::Failed(self.name().into(), e.to_string())); continue; }
+                Err(e) => {
+                    last = Some(ToolError::Failed(self.name().into(), e.to_string()));
+                    continue;
+                }
             }
         }
         Err(last.unwrap_or_else(|| ToolError::Failed(self.name().into(), "search failed".into())))

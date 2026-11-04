@@ -9,6 +9,7 @@
 //! appending generated pages).
 
 pub mod docx;
+pub mod html;
 pub mod pdf;
 mod xml;
 

@@ -7,7 +7,7 @@
 
 ## Documents
 - `document_read`: read `.pdf` (per page) or `.docx` (numbered paragraphs, optional formatting).
-- `document_create` (approval): build a styled `.pdf`/`.docx` from headings, styled runs, lists, tables, page breaks.
+- `document_create` (approval): build a styled `.pdf`/`.docx` from headings, styled runs, lists, tables, page breaks. For `.pdf`, pass `html` (styled HTML with inline CSS, optional `page_size`/`margin`) instead of `spec` to render via headless Chrome/Chromium, wkhtmltopdf or WeasyPrint (scripts and network/file access blocked; images as `data:` URIs).
 - `document_edit` (approval): DOCX replace/delete/insert/style by paragraph number or text; PDF delete pages, best-effort text replace, metadata, append pages. Atomic write; `output` keeps the original.
 - Limits: PDFs use the 14 standard fonts (non-Latin text becomes `?`); existing PDFs cannot be restyled; `.doc` is unsupported; DOCX headers/footers and text boxes are not editable.
 

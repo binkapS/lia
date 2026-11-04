@@ -199,7 +199,7 @@ impl Tool for DocumentCreateTool {
     }
 
     fn description(&self) -> &str {
-        "Create a styled .pdf or .docx document (the extension picks the format) from headings, paragraphs with styled runs, lists, tables and page breaks. PDFs use the standard fonts (Helvetica, Times, Courier); characters outside Western European text are replaced with '?'. Prefer .docx for documents that will be edited later."
+        "Create a styled .pdf or .docx document (the extension picks the format) from headings, paragraphs with styled runs, lists, tables and page breaks. PDFs use the standard fonts (Helvetica, Times, Courier); characters outside Western European text are replaced with '?'. Prefer .docx for documents that will be edited later. For richly designed PDFs (CSS layout, colors, typography, full Unicode), pass a styled 'html' string instead of 'spec'; it is rendered with headless Chrome/Chromium, wkhtmltopdf or WeasyPrint."
     }
 
     fn parameters(&self) -> Value {
@@ -208,9 +208,12 @@ impl Tool for DocumentCreateTool {
             "properties": {
                 "path": { "type": "string", "description": "Where to write, ending in .pdf or .docx." },
                 "spec": { "type": "object", "description": SPEC_HELP },
+                "html": { "type": "string", "description": "PDF only, instead of spec: a complete styled HTML document with inline <style> CSS (full CSS layout, colors, fonts, tables, images as data: URIs). Scripts and network/file access are blocked. Use page_size and margin to control the page." },
+                "page_size": { "type": "string", "enum": ["a4", "letter"], "description": "With html: page size. Default a4." },
+                "margin": { "type": "number", "description": "With html: page margin in points. Default 72." },
                 "overwrite": { "type": "boolean", "description": "Replace an existing file. Default false." }
             },
-            "required": ["path", "spec"]
+            "required": ["path"]
         })
     }
 
@@ -222,10 +225,21 @@ impl Tool for DocumentCreateTool {
         let name = self.name();
         let path = self.workspace.resolve(required(name, &args, "path")?)?;
         let format = format_of(name, &path)?;
-        let spec_value = args
-            .get("spec")
-            .ok_or_else(|| invalid(name, "missing required parameter 'spec'"))?
-            .clone();
+        let html = args.get("html").and_then(Value::as_str).map(str::to_owned);
+        if html.is_some() && format != Format::Pdf {
+            return Err(invalid(name, "html can only be used with a .pdf path"));
+        }
+        let spec_value = match (&html, args.get("spec")) {
+            (Some(_), Some(_)) => return Err(invalid(name, "give either spec or html, not both")),
+            (Some(_), None) => Value::Null,
+            (None, Some(spec)) => spec.clone(),
+            (None, None) => {
+                return Err(invalid(
+                    name,
+                    "missing required parameter 'spec' (or 'html')",
+                ));
+            }
+        };
         let overwrite = args
             .get("overwrite")
             .and_then(Value::as_bool)
@@ -239,14 +253,29 @@ impl Tool for DocumentCreateTool {
                 ),
             ));
         }
-        let bytes = blocking(name, move || {
-            let spec = Spec::parse(&spec_value)?;
-            match format {
-                Format::Pdf => document::pdf::create(&spec),
-                Format::Docx => document::docx::create(&spec),
+        let bytes = if let Some(html) = html {
+            let page: document::PageSize = match args.get("page_size") {
+                None | Some(Value::Null) => Default::default(),
+                Some(v) => serde_json::from_value(v.clone())
+                    .map_err(|_| invalid(name, "page_size must be \"a4\" or \"letter\""))?,
+            };
+            let margin = args.get("margin").and_then(Value::as_f64).unwrap_or(72.0) as f32;
+            if !(18.0..=200.0).contains(&margin) {
+                return Err(invalid(name, "margin must be between 18 and 200 points"));
             }
-        })
-        .await?;
+            document::html::render(&html, page, margin)
+                .await
+                .map_err(|e| convert(name, e))?
+        } else {
+            blocking(name, move || {
+                let spec = Spec::parse(&spec_value)?;
+                match format {
+                    Format::Pdf => document::pdf::create(&spec),
+                    Format::Docx => document::docx::create(&spec),
+                }
+            })
+            .await?
+        };
         store(name, &path, &bytes, overwrite).await?;
         Ok(ToolOutput::ok(format!(
             "Created {} ({} bytes)",

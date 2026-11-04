@@ -915,8 +915,9 @@ impl Config {
                 let key = self.key_for(kind, key_variable);
                 let mut provider =
                     OpenAiCompatProvider::new(key, model).with_max_tokens(self.max_output_tokens);
-                provider = provider
-                    .with_base_url(base_url.unwrap_or(crate::provider::openai_compat::LLAMA_CPP_BASE_URL));
+                provider = provider.with_base_url(
+                    base_url.unwrap_or(crate::provider::openai_compat::LLAMA_CPP_BASE_URL),
+                );
                 Arc::new(provider)
             }
         };

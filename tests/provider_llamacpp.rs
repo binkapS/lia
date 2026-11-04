@@ -131,7 +131,10 @@ async fn a_keyless_server_is_used_without_a_key() {
     let response = provider.complete(&request("")).await.unwrap();
 
     assert_eq!(response.model, "Model-Q4_K_M");
-    assert_eq!(response.stop_reason, Some(lia::provider::types::StopReason::EndTurn));
+    assert_eq!(
+        response.stop_reason,
+        Some(lia::provider::types::StopReason::EndTurn)
+    );
     let usage = response.usage.expect("the tokens were counted");
     assert_eq!(usage.input_tokens, 5);
     assert_eq!(usage.output_tokens, 7);

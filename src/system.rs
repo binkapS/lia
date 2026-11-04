@@ -323,9 +323,10 @@ fn memory_info() -> MemoryInfo {
         for line in text.lines() {
             if let Some((key, rest)) = line.split_once(':')
                 && let Some(value) = rest.split_whitespace().next()
-                    && let Ok(kib) = value.parse::<u64>() {
-                        values.insert(key.trim().to_string(), kib);
-                    }
+                && let Ok(kib) = value.parse::<u64>()
+            {
+                values.insert(key.trim().to_string(), kib);
+            }
         }
     }
     let kib = |key: &str| values.get(key).copied().unwrap_or(0) * 1024;
@@ -639,11 +640,7 @@ fn read_process_stat(pid: u32) -> Option<ProcessStat> {
     })
 }
 
-fn process_list(
-    before: &HashMap<u32, u64>,
-    total_delta: u64,
-    cores: usize,
-) -> Vec<ProcessInfo> {
+fn process_list(before: &HashMap<u32, u64>, total_delta: u64, cores: usize) -> Vec<ProcessInfo> {
     let users = user_names();
     let page_size = 4096u64;
     let mut processes = Vec::new();

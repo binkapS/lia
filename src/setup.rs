@@ -94,13 +94,11 @@ impl ChannelKind {
                     secret: false,
                 },
             ],
-            ChannelKind::WhatsApp => &[
-                Field {
-                    key: "WHATSAPP_ALLOWED_NUMBERS",
-                    label: "allowed numbers (optional, comma separated, with country code)",
-                    secret: false,
-                },
-            ],
+            ChannelKind::WhatsApp => &[Field {
+                key: "WHATSAPP_ALLOWED_NUMBERS",
+                label: "allowed numbers (optional, comma separated, with country code)",
+                secret: false,
+            }],
         }
     }
 }
@@ -420,10 +418,7 @@ fn read_line(prompt: &str, hide: bool) -> Result<Option<String>> {
     if read == 0 {
         return Ok(None);
     }
-    Ok(Some(
-        line.trim_end_matches(['\r', '\n'])
-            .to_string(),
-    ))
+    Ok(Some(line.trim_end_matches(['\r', '\n']).to_string()))
 }
 
 /// Turn terminal echo off or on.

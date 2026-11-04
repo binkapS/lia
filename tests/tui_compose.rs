@@ -7,7 +7,15 @@
 use lia::voice::compose::SpeechComposer;
 
 /// The courtesies the voice opens a reply with, without the honorific.
-const OPENERS: [&str; 7] = ["I'll get right on that", "Certainly", "Of course", "Very good", "Very well", "Let me handle that", "Going right ahead"];
+const OPENERS: [&str; 7] = [
+    "I'll get right on that",
+    "Certainly",
+    "Of course",
+    "Very good",
+    "Very well",
+    "Let me handle that",
+    "Going right ahead",
+];
 
 /// A fresh composer.
 fn composer() -> SpeechComposer {
@@ -161,7 +169,10 @@ fn a_bare_link_is_pointed_at() {
     let said = spoken(&["The docs live at https://example.com/wiki/mm you."]);
     let joined = said.join(" ");
     assert!(joined.contains("the link on your screen"), "{joined}");
-    assert!(!joined.contains("https"), "the address was spelled: {joined}");
+    assert!(
+        !joined.contains("https"),
+        "the address was spelled: {joined}"
+    );
 }
 
 #[test]

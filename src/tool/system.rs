@@ -433,11 +433,21 @@ impl Tool for DiagnosticsTool {
         } else {
             for check in &problems {
                 let advice = match check.name.as_str() {
-                    "memory" => "inspect `system_processes` with sort=memory; stop or restart the largest consumer before starting another big job",
-                    "swap" => "memory is being pushed to disk; find the process that grew and free memory before a heavy build",
-                    "load" => "inspect `system_processes` with sort=cpu; a long build or a runaway process is the usual cause",
-                    "disk" => "free space on the full mount, or move the workspace to one with room",
-                    "temperature" => "let the machine cool and check airflow; sustained heat will throttle it",
+                    "memory" => {
+                        "inspect `system_processes` with sort=memory; stop or restart the largest consumer before starting another big job"
+                    }
+                    "swap" => {
+                        "memory is being pushed to disk; find the process that grew and free memory before a heavy build"
+                    }
+                    "load" => {
+                        "inspect `system_processes` with sort=cpu; a long build or a runaway process is the usual cause"
+                    }
+                    "disk" => {
+                        "free space on the full mount, or move the workspace to one with room"
+                    }
+                    "temperature" => {
+                        "let the machine cool and check airflow; sustained heat will throttle it"
+                    }
                     "battery" => "charge the machine before long work, or plug it in",
                     _ => "inspect the reading before deciding",
                 };
@@ -578,12 +588,20 @@ impl Tool for SecurityStatusTool {
             checks.push((
                 "bind".into(),
                 "ok".into(),
-                format!("listening on {}:{} (loopback only)", self.facts.host, self.facts.port),
+                format!(
+                    "listening on {}:{} (loopback only)",
+                    self.facts.host, self.facts.port
+                ),
             ));
         } else {
             checks.push((
                 "bind".into(),
-                if self.facts.token_set { "warn" } else { "critical" }.into(),
+                if self.facts.token_set {
+                    "warn"
+                } else {
+                    "critical"
+                }
+                .into(),
                 format!(
                     "listening on {}:{} — anyone who can reach this port can try the gateway",
                     self.facts.host, self.facts.port
@@ -678,8 +696,14 @@ impl Tool for SecurityStatusTool {
             }
         }
 
-        let critical = checks.iter().filter(|(_, status, _)| status == "critical").count();
-        let warnings = checks.iter().filter(|(_, status, _)| status == "warn").count();
+        let critical = checks
+            .iter()
+            .filter(|(_, status, _)| status == "critical")
+            .count();
+        let warnings = checks
+            .iter()
+            .filter(|(_, status, _)| status == "warn")
+            .count();
         let verdict = if critical > 0 {
             "attention required"
         } else if warnings > 0 {
@@ -720,15 +744,17 @@ impl Tool for SecurityStatusTool {
     }
 }
 
-
-
 /// Open an application or URL using the OS launcher.
 pub struct OpenAppTool;
 
 #[async_trait::async_trait]
 impl Tool for OpenAppTool {
-    fn name(&self) -> &str { "open_app" }
-    fn description(&self) -> &str { "Open an application or URL with the system launcher." }
+    fn name(&self) -> &str {
+        "open_app"
+    }
+    fn description(&self) -> &str {
+        "Open an application or URL with the system launcher."
+    }
     fn parameters(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
@@ -738,15 +764,34 @@ impl Tool for OpenAppTool {
             "required": ["target"]
         })
     }
-    fn requires_approval(&self) -> bool { true }
+    fn requires_approval(&self) -> bool {
+        true
+    }
     async fn run(&self, args: serde_json::Value) -> crate::tool::Result<crate::tool::ToolOutput> {
-        let target = args.get("target").and_then(serde_json::Value::as_str).ok_or_else(|| crate::tool::ToolError::InvalidArgs { tool: self.name().into(), reason: "missing target".into() })?;
-        let launcher = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-        let status = tokio::process::Command::new(launcher).arg(target).status().await.map_err(|e| crate::tool::ToolError::Failed(self.name().into(), e.to_string()))?;
+        let target = args
+            .get("target")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| crate::tool::ToolError::InvalidArgs {
+                tool: self.name().into(),
+                reason: "missing target".into(),
+            })?;
+        let launcher = if cfg!(target_os = "macos") {
+            "open"
+        } else {
+            "xdg-open"
+        };
+        let status = tokio::process::Command::new(launcher)
+            .arg(target)
+            .status()
+            .await
+            .map_err(|e| crate::tool::ToolError::Failed(self.name().into(), e.to_string()))?;
         if status.success() {
             Ok(crate::tool::ToolOutput::ok(format!("Opened {target}")))
         } else {
-            Err(crate::tool::ToolError::Failed(self.name().into(), format!("launcher failed: {status}")))
+            Err(crate::tool::ToolError::Failed(
+                self.name().into(),
+                format!("launcher failed: {status}"),
+            ))
         }
     }
 }

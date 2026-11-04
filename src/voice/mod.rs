@@ -62,14 +62,15 @@ fn speaker_from(config: &VoiceConfig, player: &Option<detect::Player>) -> Option
     // When MODEL_DIR is set, Phonon speaks with that checkpoint, ahead of
     // anything named in the configuration.
     if let Ok(source) = std::env::var("MODEL_DIR")
-        && !source.trim().is_empty() {
-            return Some(Speaker::phonon(
-                Some(source),
-                config.language.as_deref(),
-                config.voice.clone(),
-                player.clone(),
-            ));
-        }
+        && !source.trim().is_empty()
+    {
+        return Some(Speaker::phonon(
+            Some(source),
+            config.language.as_deref(),
+            config.voice.clone(),
+            player.clone(),
+        ));
+    }
 
     if let Some(command) = config.speak_command.as_ref().filter(|c| !c.is_empty()) {
         let (program, args) = command.split_first().expect("the command is not empty");

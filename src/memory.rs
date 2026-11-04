@@ -164,7 +164,11 @@ impl MemoryStore {
     /// works on a fresh install.
     pub fn open(root: PathBuf, workspace: PathBuf) -> std::io::Result<Self> {
         std::fs::create_dir_all(&root)?;
-        Ok(MemoryStore { root, workspace, embedder: None })
+        Ok(MemoryStore {
+            root,
+            workspace,
+            embedder: None,
+        })
     }
 
     /// The directory holding the memory files.
@@ -429,7 +433,9 @@ impl MemoryStore {
         };
         let mut scored: Vec<(f32, SearchHit)> = Vec::new();
         for file in self.files() {
-            let Ok(text) = std::fs::read_to_string(&file.path) else { continue; };
+            let Ok(text) = std::fs::read_to_string(&file.path) else {
+                continue;
+            };
             for (i, line) in text.lines().enumerate() {
                 let lv = if let Some(embedder) = &self.embedder {
                     embedder.embed(line)
@@ -438,25 +444,41 @@ impl MemoryStore {
                 };
                 let score = cosine(&qv, &lv);
                 if score > 0.0 {
-                    scored.push((score, SearchHit { file: file.name.clone(), line: i+1, text: line.trim().to_string() }));
+                    scored.push((
+                        score,
+                        SearchHit {
+                            file: file.name.clone(),
+                            line: i + 1,
+                            text: line.trim().to_string(),
+                        },
+                    ));
                 }
             }
         }
-        scored.sort_by(|a,b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         scored.into_iter().map(|x| x.1).collect()
     }
 
     /// Lines that may conflict with a new fact (same topic, different wording).
     pub fn conflicts(&self, text: &str) -> Vec<String> {
-        let wanted: std::collections::BTreeSet<String> =
-            text.to_lowercase().split_whitespace().map(|s| s.trim_matches(|c: char| !c.is_alphanumeric()).to_string()).filter(|s| !s.is_empty()).collect();
+        let wanted: std::collections::BTreeSet<String> = text
+            .to_lowercase()
+            .split_whitespace()
+            .map(|s| s.trim_matches(|c: char| !c.is_alphanumeric()).to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
         let mut out = Vec::new();
         for file in self.files() {
-            let Ok(contents) = std::fs::read_to_string(&file.path) else { continue; };
+            let Ok(contents) = std::fs::read_to_string(&file.path) else {
+                continue;
+            };
             for line in contents.lines() {
                 let low = line.to_lowercase();
-                let tokens: std::collections::BTreeSet<String> =
-                    low.split_whitespace().map(|s| s.trim_matches(|c: char| !c.is_alphanumeric()).to_string()).filter(|s| !s.is_empty()).collect();
+                let tokens: std::collections::BTreeSet<String> = low
+                    .split_whitespace()
+                    .map(|s| s.trim_matches(|c: char| !c.is_alphanumeric()).to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
                 let overlap = wanted.iter().filter(|t| tokens.contains(*t)).count();
                 if overlap >= 2 && !low.contains(&text.to_lowercase()) {
                     out.push(line.trim().to_string());
@@ -515,16 +537,30 @@ impl MemoryStore {
     pub fn upsert_fact(&self, name: &str, text: &str, origin: Origin) -> std::io::Result<String> {
         let text = text.trim();
         if text.is_empty() {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "nothing to upsert"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "nothing to upsert",
+            ));
         }
         let path = self.resolve(name).unwrap_or_else(|| self.core_path());
         let existing = std::fs::read_to_string(&path).unwrap_or_default();
-        if existing.lines().any(|l| l.trim().trim_start_matches("- ").trim().to_lowercase().starts_with(&text.to_lowercase())) {
+        if existing.lines().any(|l| {
+            l.trim()
+                .trim_start_matches("- ")
+                .trim()
+                .to_lowercase()
+                .starts_with(&text.to_lowercase())
+        }) {
             return Ok(format!("already present in {}", path.display()));
         }
         use std::io::Write;
-        let mut file = std::fs::OpenOptions::new().create(true).append(true).open(&path)?;
-        if !existing.trim().is_empty() { writeln!(file)?; }
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)?;
+        if !existing.trim().is_empty() {
+            writeln!(file)?;
+        }
         writeln!(file, "- [{}] {}", origin.as_str(), text.replace('\n', " "))?;
         file.flush()?;
         Ok(format!("upserted into {}", path.display()))
@@ -547,7 +583,10 @@ impl MemoryStore {
             if let Some(o) = val.as_object() {
                 let mut count = 0usize;
                 for (k, v) in o {
-                    let text = v.as_str().map(|s| s.to_string()).unwrap_or_else(|| v.to_string());
+                    let text = v
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| v.to_string());
                     let _ = self.remember(&format!("{k}: {text}"), origin);
                     count += 1;
                 }
@@ -556,7 +595,10 @@ impl MemoryStore {
             if let Some(arr) = val.as_array() {
                 let mut count = 0usize;
                 for v in arr {
-                    let text = v.as_str().map(|s| s.to_string()).unwrap_or_else(|| v.to_string());
+                    let text = v
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| v.to_string());
                     let _ = self.remember(&text, origin);
                     count += 1;
                 }
@@ -604,26 +646,35 @@ impl MemoryStore {
     }
 }
 
-
 fn text_vector(text: &str) -> Vec<f32> {
     const DIM: usize = 256;
     let mut v = vec![0.0f32; DIM];
     for tok in text.to_lowercase().split_whitespace() {
         let tok = tok.trim_matches(|c: char| !c.is_alphanumeric());
-        if tok.is_empty() { continue; }
+        if tok.is_empty() {
+            continue;
+        }
         let mut h: usize = 5381;
-        for b in tok.bytes() { h = h.wrapping_mul(33).wrapping_add(b as usize); }
+        for b in tok.bytes() {
+            h = h.wrapping_mul(33).wrapping_add(b as usize);
+        }
         v[h % DIM] += 1.0;
     }
     v
 }
 
 fn cosine(a: &[f32], b: &[f32]) -> f32 {
-    let mut dot=0.0; let mut an=0.0; let mut bn=0.0;
+    let mut dot = 0.0;
+    let mut an = 0.0;
+    let mut bn = 0.0;
     for i in 0..a.len() {
-        dot += a[i]*b[i];
-        an += a[i]*a[i];
-        bn += b[i]*b[i];
+        dot += a[i] * b[i];
+        an += a[i] * a[i];
+        bn += b[i] * b[i];
     }
-    if an == 0.0 || bn == 0.0 { 0.0 } else { dot / (an.sqrt()*bn.sqrt()) }
+    if an == 0.0 || bn == 0.0 {
+        0.0
+    } else {
+        dot / (an.sqrt() * bn.sqrt())
+    }
 }

@@ -241,7 +241,11 @@ impl ToolRegistry {
         let started = std::time::Instant::now();
         let result = tool.run(args).await;
         let elapsed = started.elapsed();
-        tracing::info!(tool = name, elapsed_ms = elapsed.as_millis(), "tool invocation");
+        tracing::info!(
+            tool = name,
+            elapsed_ms = elapsed.as_millis(),
+            "tool invocation"
+        );
         result
     }
 }

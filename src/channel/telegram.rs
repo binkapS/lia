@@ -334,15 +334,15 @@ impl TelegramChannel {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
             if status.is_success() {
-                let parsed: ApiResponse<T> = serde_json::from_str(&text).map_err(|e| {
-                    anyhow::anyhow!("could not read the telegram response: {e}")
-                })?;
+                let parsed: ApiResponse<T> = serde_json::from_str(&text)
+                    .map_err(|e| anyhow::anyhow!("could not read the telegram response: {e}"))?;
                 if parsed.ok {
                     return Ok(parsed.result);
                 }
                 // The API answered cleanly with a refusal.
-                let description =
-                    parsed.description.unwrap_or_else(|| "unknown error".to_string());
+                let description = parsed
+                    .description
+                    .unwrap_or_else(|| "unknown error".to_string());
                 return Err(anyhow::anyhow!("telegram {method} failed: {description}"));
             }
 
@@ -356,13 +356,11 @@ impl TelegramChannel {
                 .unwrap_or_else(|| format!("HTTP {status}"));
 
             // Too many requests carries the wait in parameters.retry_after.
-            let retry_after = serde_json::from_str::<Value>(&text)
-                .ok()
-                .and_then(|body| {
-                    body.get("parameters")
-                        .and_then(|p| p.get("retry_after"))
-                        .and_then(|r| r.as_u64())
-                });
+            let retry_after = serde_json::from_str::<Value>(&text).ok().and_then(|body| {
+                body.get("parameters")
+                    .and_then(|p| p.get("retry_after"))
+                    .and_then(|r| r.as_u64())
+            });
             let rate_limited = status.as_u16() == 429 || retry_after.is_some();
             let server_fumbled = status.is_server_error();
 

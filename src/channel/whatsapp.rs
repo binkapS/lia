@@ -278,8 +278,7 @@ impl Inbox {
             if let Some(store) = &self.pairing
                 && chat.server != Server::Group
             {
-                let (request, offer) =
-                    store.request("whatsapp", &conversation, &sender, None);
+                let (request, offer) = store.request("whatsapp", &conversation, &sender, None);
                 if offer {
                     let offer = pairing::pairing_message(&request.code);
                     if let Err(e) = ctx.client.send_text(chat, offer).await {
@@ -594,16 +593,14 @@ mod tests {
     #[test]
     fn a_number_on_the_allow_list_is_let_in() {
         let state = std::env::temp_dir().join("lia-test-whatsapp-known");
-        let channel =
-            WhatsAppChannel::new(state.join("w.db"), vec!["+1 555 123 4567".to_string()]);
+        let channel = WhatsAppChannel::new(state.join("w.db"), vec!["+1 555 123 4567".to_string()]);
         assert!(channel.is_number_allowed("15551234567"));
         assert!(!channel.is_number_allowed("15550000000"));
     }
 
     #[test]
     fn an_message_is_routed_to_the_right_chat() {
-        let inbound =
-            InboundMessage::new("whatsapp", "15551234567", "hello", "15551234567");
+        let inbound = InboundMessage::new("whatsapp", "15551234567", "hello", "15551234567");
         assert_eq!(inbound.channel, "whatsapp");
         assert_eq!(inbound.conversation, "15551234567");
     }

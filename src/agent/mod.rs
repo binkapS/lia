@@ -327,16 +327,9 @@ impl Agent {
                 Err(e) => {
                     // When the provider rejects the request as too long, compact
                     // the conversation once and retry before giving up.
-                    if !overflow_retried
-                        && matches!(e, ProviderError::ContextOverflow(_))
-                    {
+                    if !overflow_retried && matches!(e, ProviderError::ContextOverflow(_)) {
                         overflow_retried = true;
-                        messages = compaction::compact(
-                            messages,
-                            0,
-                            self.provider.as_ref(),
-                        )
-                        .await;
+                        messages = compaction::compact(messages, 0, self.provider.as_ref()).await;
                         let _ = tx
                             .send(AgentEvent::Notice(
                                 "compacted conversation to fit the context window".into(),
@@ -860,7 +853,6 @@ impl SessionRunner {
         }
         true
     }
-
 
     /// Create a brand-new empty session with the given id, persisting it.
     /// Returns whether it was actually created (false means it already

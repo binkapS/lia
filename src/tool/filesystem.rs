@@ -1001,17 +1001,34 @@ impl Tool for CopyPathTool {
 
     async fn run(&self, args: Value) -> Result<ToolOutput> {
         let from = string_arg(&args, &["from", "source", "src", "old_path", "source_path"])?;
-        let to = string_arg(&args, &["to", "destination", "dest", "dst", "new_path", "target", "target_path"])?;
+        let to = string_arg(
+            &args,
+            &[
+                "to",
+                "destination",
+                "dest",
+                "dst",
+                "new_path",
+                "target",
+                "target_path",
+            ],
+        )?;
         let overwrite = bool_arg(&args, &["overwrite"], false);
 
         let src = self.workspace.resolve(from)?;
         let dst = self.workspace.resolve(to)?;
 
         if !src.exists() {
-            return Err(ToolError::Failed(self.name().into(), format!("source does not exist: {}", src.display())));
+            return Err(ToolError::Failed(
+                self.name().into(),
+                format!("source does not exist: {}", src.display()),
+            ));
         }
         if dst.exists() && !overwrite {
-            return Err(ToolError::Failed(self.name().into(), format!("destination already exists: {}", dst.display())));
+            return Err(ToolError::Failed(
+                self.name().into(),
+                format!("destination already exists: {}", dst.display()),
+            ));
         }
 
         copy_recursive(&src, &dst)
@@ -1092,28 +1109,48 @@ impl Tool for MovePathTool {
 
     async fn run(&self, args: Value) -> Result<ToolOutput> {
         let from = string_arg(&args, &["from", "source", "src", "old_path", "source_path"])?;
-        let to = string_arg(&args, &["to", "destination", "dest", "dst", "new_path", "target", "target_path"])?;
+        let to = string_arg(
+            &args,
+            &[
+                "to",
+                "destination",
+                "dest",
+                "dst",
+                "new_path",
+                "target",
+                "target_path",
+            ],
+        )?;
         let overwrite = bool_arg(&args, &["overwrite"], false);
 
         let src = self.workspace.resolve(from)?;
         let dst = self.workspace.resolve(to)?;
 
         if !src.exists() {
-            return Err(ToolError::Failed(self.name().into(), format!("source does not exist: {}", src.display())));
+            return Err(ToolError::Failed(
+                self.name().into(),
+                format!("source does not exist: {}", src.display()),
+            ));
         }
         if dst.exists() && !overwrite {
-            return Err(ToolError::Failed(self.name().into(), format!("destination already exists: {}", dst.display())));
+            return Err(ToolError::Failed(
+                self.name().into(),
+                format!("destination already exists: {}", dst.display()),
+            ));
         }
         if dst.exists() {
             if dst.is_dir() {
-                std::fs::remove_dir_all(&dst).map_err(|e| ToolError::Failed(self.name().into(), e.to_string()))?;
+                std::fs::remove_dir_all(&dst)
+                    .map_err(|e| ToolError::Failed(self.name().into(), e.to_string()))?;
             } else {
-                std::fs::remove_file(&dst).map_err(|e| ToolError::Failed(self.name().into(), e.to_string()))?;
+                std::fs::remove_file(&dst)
+                    .map_err(|e| ToolError::Failed(self.name().into(), e.to_string()))?;
             }
         }
 
         if let Some(parent) = dst.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| ToolError::Failed(self.name().into(), e.to_string()))?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| ToolError::Failed(self.name().into(), e.to_string()))?;
         }
 
         if std::fs::rename(&src, &dst).is_err() {
@@ -1121,9 +1158,11 @@ impl Tool for MovePathTool {
             copy_recursive(&src, &dst)
                 .map_err(|e| ToolError::Failed(self.name().into(), e.to_string()))?;
             if src.is_dir() {
-                std::fs::remove_dir_all(&src).map_err(|e| ToolError::Failed(self.name().into(), e.to_string()))?;
+                std::fs::remove_dir_all(&src)
+                    .map_err(|e| ToolError::Failed(self.name().into(), e.to_string()))?;
             } else {
-                std::fs::remove_file(&src).map_err(|e| ToolError::Failed(self.name().into(), e.to_string()))?;
+                std::fs::remove_file(&src)
+                    .map_err(|e| ToolError::Failed(self.name().into(), e.to_string()))?;
             }
         }
 
@@ -1189,7 +1228,17 @@ impl Tool for PatchTool {
         let resolved = self.workspace.resolve(path)?;
 
         // Accept the diff under any common key.
-        let diff_text = match string_arg(&args, &["patch", "diff", "content", "unified_diff", "patch_text", "diff_text"]) {
+        let diff_text = match string_arg(
+            &args,
+            &[
+                "patch",
+                "diff",
+                "content",
+                "unified_diff",
+                "patch_text",
+                "diff_text",
+            ],
+        ) {
             Ok(v) => v.to_string(),
             Err(_) => {
                 // Maybe a bare string was passed under "path"? No; require patch somewhere.
@@ -1214,7 +1263,9 @@ impl Tool for PatchTool {
             .arg(&patch_file)
             .output()
             .await
-            .map_err(|e| ToolError::Failed(self.name().into(), format!("patch not available: {e}")))?;
+            .map_err(|e| {
+                ToolError::Failed(self.name().into(), format!("patch not available: {e}"))
+            })?;
 
         if !status.status.success() {
             let stderr = String::from_utf8_lossy(&status.stderr);
@@ -1225,14 +1276,14 @@ impl Tool for PatchTool {
             ));
         }
 
-        Ok(ToolOutput::ok(format!(
-            "Patched {}",
-            self.workspace.display(&resolved)
-        ))
-        .with_metadata(json!({
-            "path": self.workspace.display(&resolved),
-            "stdout": String::from_utf8_lossy(&status.stdout),
-        })))
+        Ok(
+            ToolOutput::ok(format!("Patched {}", self.workspace.display(&resolved))).with_metadata(
+                json!({
+                    "path": self.workspace.display(&resolved),
+                    "stdout": String::from_utf8_lossy(&status.stdout),
+                }),
+            ),
+        )
     }
 }
 
@@ -1293,10 +1344,15 @@ impl Tool for FormatFileTool {
                     .arg(&resolved)
                     .output()
                     .await
-                    .map_err(|e| ToolError::Failed(self.name().into(), format!("rustfmt not available: {e}")))?;
+                    .map_err(|e| {
+                        ToolError::Failed(self.name().into(), format!("rustfmt not available: {e}"))
+                    })?;
                 if !status.status.success() {
                     let stderr = String::from_utf8_lossy(&status.stderr);
-                    return Err(ToolError::Failed(self.name().into(), format!("rustfmt failed: {stderr}")));
+                    return Err(ToolError::Failed(
+                        self.name().into(),
+                        format!("rustfmt failed: {stderr}"),
+                    ));
                 }
                 Ok(ToolOutput::ok(format!(
                     "Formatted {}",
@@ -1359,7 +1415,10 @@ impl Tool for GrepCodebaseTool {
         // Delegate to the existing search implementation by constructing its
         // behaviour inline (same algorithm, simpler to keep self-contained).
         let base = args.get("path").and_then(Value::as_str).unwrap_or(".");
-        let max_results = args.get("max_results").and_then(Value::as_u64).unwrap_or(100) as usize;
+        let max_results = args
+            .get("max_results")
+            .and_then(Value::as_u64)
+            .unwrap_or(100) as usize;
         let pattern = args
             .get("pattern")
             .or_else(|| args.get("content"))
@@ -1376,19 +1435,44 @@ impl Tool for GrepCodebaseTool {
         let regex = regex::Regex::new(pattern)
             .map_err(|e| ToolError::Failed(self.name().into(), e.to_string()))?;
         let mut results = Vec::new();
-        for entry in walkdir::WalkDir::new(&root).follow_links(false).into_iter().filter_map(std::result::Result::ok) {
-            if !entry.path().is_file() { continue; }
-            if entry.metadata().map(|m| m.len() > 2_000_000).unwrap_or(true) { continue; }
-            let Ok(content) = tokio::fs::read_to_string(entry.path()).await else { continue; };
+        for entry in walkdir::WalkDir::new(&root)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(std::result::Result::ok)
+        {
+            if !entry.path().is_file() {
+                continue;
+            }
+            if entry
+                .metadata()
+                .map(|m| m.len() > 2_000_000)
+                .unwrap_or(true)
+            {
+                continue;
+            }
+            let Ok(content) = tokio::fs::read_to_string(entry.path()).await else {
+                continue;
+            };
             for (i, line) in content.lines().enumerate() {
                 if regex.is_match(line) {
-                    results.push(format!("{}:{}: {}", self.workspace.display(entry.path()), i+1, line.trim_end()));
-                    if results.len() >= max_results { break; }
+                    results.push(format!(
+                        "{}:{}: {}",
+                        self.workspace.display(entry.path()),
+                        i + 1,
+                        line.trim_end()
+                    ));
+                    if results.len() >= max_results {
+                        break;
+                    }
                 }
             }
-            if results.len() >= max_results { break; }
+            if results.len() >= max_results {
+                break;
+            }
         }
-        if results.is_empty() { return Ok(ToolOutput::ok("(no matches)")); }
+        if results.is_empty() {
+            return Ok(ToolOutput::ok("(no matches)"));
+        }
         Ok(ToolOutput::ok(results.join("\n")).with_metadata(json!({"matches":results.len()})))
     }
 }
@@ -1427,23 +1511,45 @@ impl Tool for FindSymbolsTool {
 
     async fn run(&self, args: Value) -> Result<ToolOutput> {
         let base = args.get("path").and_then(Value::as_str).unwrap_or(".");
-        let filter = args.get("query").or_else(|| args.get("symbol")).or_else(|| args.get("name")).and_then(Value::as_str).unwrap_or("");
+        let filter = args
+            .get("query")
+            .or_else(|| args.get("symbol"))
+            .or_else(|| args.get("name"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
         let root = self.workspace.resolve(base)?;
         // Pattern matches common definition keywords followed by an identifier.
         let symbol_re = regex::Regex::new(r"(?m)^\s*(pub\s+)?(fn|struct|enum|trait|class|interface|def|func|type|const|static)\s+([A-Za-z_][A-Za-z0-9_]*)").unwrap();
         let mut results = Vec::new();
-        for entry in walkdir::WalkDir::new(&root).follow_links(false).into_iter().filter_map(std::result::Result::ok) {
-            if !entry.path().is_file() { continue; }
-            let Ok(content) = tokio::fs::read_to_string(entry.path()).await else { continue; };
+        for entry in walkdir::WalkDir::new(&root)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(std::result::Result::ok)
+        {
+            if !entry.path().is_file() {
+                continue;
+            }
+            let Ok(content) = tokio::fs::read_to_string(entry.path()).await else {
+                continue;
+            };
             for (i, line) in content.lines().enumerate() {
                 if let Some(caps) = symbol_re.captures(line) {
                     let name = caps.get(3).map(|m| m.as_str()).unwrap_or("");
-                    if !filter.is_empty() && !name.contains(filter) { continue; }
-                    results.push(format!("{}:{}: {}", self.workspace.display(entry.path()), i+1, line.trim()));
+                    if !filter.is_empty() && !name.contains(filter) {
+                        continue;
+                    }
+                    results.push(format!(
+                        "{}:{}: {}",
+                        self.workspace.display(entry.path()),
+                        i + 1,
+                        line.trim()
+                    ));
                 }
             }
         }
-        if results.is_empty() { return Ok(ToolOutput::ok("(no symbols)")); }
+        if results.is_empty() {
+            return Ok(ToolOutput::ok("(no symbols)"));
+        }
         Ok(ToolOutput::ok(results.join("\n")).with_metadata(json!({"symbols":results.len()})))
     }
 }
@@ -1455,12 +1561,19 @@ pub struct ReadUrlChunkedTool {
 
 impl ReadUrlChunkedTool {
     pub fn new() -> Self {
-        ReadUrlChunkedTool { client: reqwest::Client::builder().timeout(std::time::Duration::from_secs(30)).build().unwrap_or_default() }
+        ReadUrlChunkedTool {
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .unwrap_or_default(),
+        }
     }
 }
 
 impl Default for ReadUrlChunkedTool {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[async_trait]
@@ -1486,16 +1599,31 @@ impl Tool for ReadUrlChunkedTool {
     }
 
     async fn run(&self, args: Value) -> Result<ToolOutput> {
-        let url = args.get("url").and_then(Value::as_str).ok_or_else(|| ToolError::InvalidArgs { tool: self.name().into(), reason: "missing required parameter 'url'".into() })?;
+        let url =
+            args.get("url")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::InvalidArgs {
+                    tool: self.name().into(),
+                    reason: "missing required parameter 'url'".into(),
+                })?;
         let offset = args.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
         let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(20000) as usize;
-        let resp = self.client.get(url).send().await.map_err(|e| ToolError::Failed(self.name().into(), e.to_string()))?;
-        let text = resp.text().await.map_err(|e| ToolError::Failed(self.name().into(), e.to_string()))?;
+        let resp = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| ToolError::Failed(self.name().into(), e.to_string()))?;
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| ToolError::Failed(self.name().into(), e.to_string()))?;
         let chars: Vec<char> = text.chars().collect();
         let start = offset.min(chars.len());
         let end = (start + limit).min(chars.len());
         let chunk: String = chars[start..end].iter().collect();
-        Ok(ToolOutput::ok(chunk).with_metadata(json!({"offset":start,"returned":end-start,"total":chars.len()})))
+        Ok(ToolOutput::ok(chunk)
+            .with_metadata(json!({"offset":start,"returned":end-start,"total":chars.len()})))
     }
 }
 

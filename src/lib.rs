@@ -15,8 +15,8 @@
 //! later. [`tui`] is the terminal client, and [`cli`] is the command-line
 //! entry point.
 
-pub mod agent;
 pub mod agenda;
+pub mod agent;
 pub mod briefing;
 pub mod caldav;
 pub mod calendar;
@@ -31,8 +31,8 @@ pub mod gateway;
 pub mod image;
 pub mod inbox;
 pub mod inbox_identity;
-pub mod live;
 pub mod jmap;
+pub mod live;
 pub mod mcp;
 pub mod memory;
 pub mod provider;

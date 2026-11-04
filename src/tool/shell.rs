@@ -139,7 +139,12 @@ impl Tool for ShellTool {
             }
         }
 
-        if !self.allowed.is_empty() && !self.allowed.iter().any(|a| lower.starts_with(&a.to_lowercase())) {
+        if !self.allowed.is_empty()
+            && !self
+                .allowed
+                .iter()
+                .any(|a| lower.starts_with(&a.to_lowercase()))
+        {
             return Err(ToolError::Failed(
                 self.name().into(),
                 "command not allowed by policy".into(),
@@ -155,12 +160,20 @@ impl Tool for ShellTool {
         let param_cwd = args.get("cwd").and_then(Value::as_str);
         let cwd = if let Some(c) = param_cwd {
             let p = PathBuf::from(c);
-            if let Ok(mut guard) = self.working_dir.lock() { *guard = p.clone(); }
+            if let Ok(mut guard) = self.working_dir.lock() {
+                *guard = p.clone();
+            }
             p
         } else {
-            self.working_dir.lock().map(|g| g.clone()).unwrap_or_else(|_| PathBuf::from(&self.cwd))
+            self.working_dir
+                .lock()
+                .map(|g| g.clone())
+                .unwrap_or_else(|_| PathBuf::from(&self.cwd))
         };
-        let output_format = args.get("output_format").and_then(Value::as_str).unwrap_or("text");
+        let output_format = args
+            .get("output_format")
+            .and_then(Value::as_str)
+            .unwrap_or("text");
 
         // The command may be run in a sandbox, where the rest of the disk
         // can only be read. Where there is no sandbox it runs as it did.
@@ -234,7 +247,8 @@ impl Tool for ShellTool {
                 "stdout": stdout.trim_end(),
                 "stderr": stderr.trim_end(),
                 "exit_code": code,
-            }).to_string()
+            })
+            .to_string()
         } else {
             text
         };
