@@ -684,18 +684,48 @@ function startNexus() {
   });
 
   function setConsoleModal(open) {
+    const consoleEl = document.querySelector(".console");
     document.body.classList.toggle("console-modal-open", !!open);
     if (el.consoleModalScrim) {
       el.consoleModalScrim.hidden = !open;
+    }
+    if (consoleEl) {
+      if (open) {
+        if (!consoleEl._modalRestore) {
+          consoleEl._modalRestore = {
+            parent: consoleEl.parentNode,
+            next: consoleEl.nextSibling,
+          };
+        }
+        document.body.appendChild(consoleEl);
+      } else if (consoleEl._modalRestore) {
+        const restore = consoleEl._modalRestore;
+        if (restore.parent) {
+          restore.parent.insertBefore(consoleEl, restore.next);
+        }
+        consoleEl._modalRestore = null;
+      }
     }
     if (el.consoleExpand) {
       el.consoleExpand.setAttribute("aria-expanded", String(!!open));
       el.consoleExpand.classList.toggle("is-open", !!open);
       const label = el.consoleExpand.querySelector(".console-expand-label");
       if (label) {
-        label.textContent = open ? "close console" : "open console";
+        label.textContent = open ? "minimize console" : "expand console";
       }
     }
+    /* Keep the newest entries in view when the console opens or returns. */
+    window.requestAnimationFrame(() => {
+      try {
+        state.follow = true;
+        if (el.transcript) {
+          el.transcript.scrollTop = el.transcript.scrollHeight;
+        }
+        if (typeof follow === "function") follow();
+      } catch (e) {
+        /* The transcript may not be mounted yet; ignore. */
+      }
+    });
   }
 
   if (el.consoleExpand) {
