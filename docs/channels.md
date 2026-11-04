@@ -118,3 +118,13 @@ run for the rest of the conversation.
 ```sh
 lia serve      # gateway + every channel the environment or setup configures
 ```
+
+## Messages she starts herself
+
+A reply goes back to the chat that asked. When the assistant has something
+to say with nothing to answer — a long job that finished, a check she
+promised to run — she sends it with the `send_message` tool. In a chat turn
+it goes back to that chat; in a turn without a chat (the terminal, the
+gateway) the channel and conversation are named, e.g. `telegram` and
+`123456789`. It asks for approval first, like any tool that reaches
+outside the conversation.

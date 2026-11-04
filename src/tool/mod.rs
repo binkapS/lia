@@ -13,6 +13,7 @@ pub mod document;
 pub mod fetch;
 pub mod filesystem;
 pub mod memory;
+pub mod message;
 pub mod personal;
 pub mod sandbox;
 pub mod schedule;

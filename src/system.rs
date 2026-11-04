@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 pub const SAMPLE: Duration = Duration::from_millis(140);
 
 /// A reading of the machine, at one moment.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SystemSnapshot {
     /// When the reading was taken, as an RFC 3339 timestamp.
     pub timestamp: String,

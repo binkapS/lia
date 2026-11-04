@@ -683,6 +683,31 @@ function startNexus() {
     nx.configPanel.hidden = true;
   });
 
+  function setConsoleModal(open) {
+    document.body.classList.toggle("console-modal-open", !!open);
+    if (el.consoleModalScrim) {
+      el.consoleModalScrim.hidden = !open;
+    }
+    if (el.consoleExpand) {
+      el.consoleExpand.setAttribute("aria-expanded", String(!!open));
+      el.consoleExpand.classList.toggle("is-open", !!open);
+      const label = el.consoleExpand.querySelector(".console-expand-label");
+      if (label) {
+        label.textContent = open ? "close console" : "open console";
+      }
+    }
+  }
+
+  if (el.consoleExpand) {
+    el.consoleExpand.addEventListener("click", () => {
+      setConsoleModal(!document.body.classList.contains("console-modal-open"));
+    });
+  }
+  if (el.consoleModalScrim) {
+    el.consoleModalScrim.addEventListener("click", () => setConsoleModal(false));
+  }
+  window.setConsoleModal = setConsoleModal;
+
   nx.orbWrap.addEventListener("click", () => {
     SYSTEM.orbMode = (SYSTEM.orbMode + 1) % ORB_MODES.length;
     renderOrb();
@@ -745,6 +770,10 @@ function startNexus() {
 
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
+    if (document.body.classList.contains("console-modal-open")) {
+      if (typeof setConsoleModal === "function") setConsoleModal(false);
+      return;
+    }
     if (!nx.configPanel.hidden) {
       nx.configPanel.hidden = true;
       return;

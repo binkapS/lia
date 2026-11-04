@@ -830,27 +830,23 @@ impl SessionRunner {
     /// — but the model no longer remembers what was said before. Returns
     /// whether there was anything to forget.
     pub async fn reset_session(&self, session_id: &str) -> bool {
-        let snapshot = {
+        let saved = {
             let mut store = self.sessions.lock().await;
-            let Some(session) = store.get_mut(session_id) else {
-                return false;
-            };
-            if session.messages.is_empty() {
-                return false;
+            let dir = store.dir().map(|d| d.to_path_buf());
+            match store.get_mut(session_id) {
+                Some(session) if !session.messages.is_empty() => {
+                    session.messages.clear();
+                    session.title = "New session".to_string();
+                    session.touch();
+                    Some((dir, session.clone()))
+                }
+                _ => None,
             }
-            session.messages.clear();
-            session.title = "New session".to_string();
-            session.touch();
-            Some(session.clone())
         };
-
-        let Some(snapshot) = snapshot else {
+        let Some((dir, snapshot)) = saved else {
             return false;
         };
-        let store = self.sessions.lock().await;
-        if let Err(e) = store.persist(&snapshot) {
-            tracing::warn!("could not save the session '{session_id}': {e}");
-        }
+        crate::agent::session::SessionStore::save_off_runtime(dir, snapshot).await;
         true
     }
 
@@ -863,7 +859,7 @@ impl SessionRunner {
 
     /// Like `create_session`, but with an explicit origin label.
     pub async fn create_session_with_source(&self, session_id: &str, source: &str) -> bool {
-        let session = {
+        let saved = {
             let mut store = self.sessions.lock().await;
             if store.get(session_id).is_some() {
                 return false;
@@ -871,12 +867,10 @@ impl SessionRunner {
             let mut session = Session::new(session_id.to_string(), source);
             session.title = "New session".to_string();
             store.insert(session.clone());
-            session
+            Some((store.dir().map(|d| d.to_path_buf()), session))
         };
-        // Persist outside the lock is not strictly needed, but keep it simple.
-        let store = self.sessions.lock().await;
-        if let Err(e) = store.persist(&session) {
-            tracing::warn!("could not save the new session '{session_id}': {e}");
+        if let Some((dir, session)) = saved {
+            crate::agent::session::SessionStore::save_off_runtime(dir, session).await;
         }
         true
     }
@@ -949,9 +943,13 @@ impl SessionRunner {
             .filter(|text| !text.trim().is_empty());
 
         // The session is saved as the conversation happens, so it survives a
-        // restart and can be picked up from the session list later.
-        let snapshot = {
+        // restart and can be picked up from the session list later. The
+        // snapshot is made under the sessions lock, but the write happens
+        // off the runtime: rewriting the whole history file is disk work
+        // that must not hold the lock everybody else reads through.
+        let saved = {
             let mut store = self.sessions.lock().await;
+            let dir = store.dir().map(|d| d.to_path_buf());
             match store.get_mut(session_id) {
                 Some(session) => {
                     session.messages = messages;
@@ -961,17 +959,14 @@ impl SessionRunner {
                     if session.title == "New session" {
                         session.derive_title();
                     }
-                    Some(session.clone())
+                    Some((dir, session.clone()))
                 }
                 None => None,
             }
         };
 
-        if let Some(snapshot) = snapshot {
-            let store = self.sessions.lock().await;
-            if let Err(e) = store.persist(&snapshot) {
-                tracing::warn!("could not save the session '{session_id}': {e}");
-            }
+        if let Some((dir, snapshot)) = saved {
+            crate::agent::session::SessionStore::save_off_runtime(dir, snapshot).await;
         }
         answer
     }

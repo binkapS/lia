@@ -1146,7 +1146,7 @@ async fn live(config: Config, share: Option<String>) -> Result<()> {
         anyhow::bail!("nothing on this machine can speak");
     }
 
-    let agent = build_agent(&config, config.tools_enabled, None).await?;
+    let agent = build_agent(&config, config.tools_enabled, None, None).await?;
     let sessions = Arc::new(tokio::sync::Mutex::new(SessionStore::open(
         config.state_dir.join("sessions"),
     )?));
@@ -1536,12 +1536,20 @@ pub async fn build_agent(
     config: &Config,
     tools_enabled: bool,
     schedule: Option<crate::tool::schedule::SchedulerSlot>,
+    messaging: Option<crate::channel::ChannelHub>,
 ) -> Result<Arc<Agent>> {
     let provider = config.build_provider()?;
     let mut registry = build_tools(config);
 
     if let Some(slot) = schedule {
         registry.register(Arc::new(crate::tool::schedule::ScheduleTool::new(slot)));
+    }
+
+    // The channels are what a message the assistant starts on its own is
+    // sent through. The hub is filled later, when the channels have been
+    // built, the way the scheduler arrives later than its slot.
+    if let Some(hub) = messaging {
+        registry.register(Arc::new(crate::tool::message::SendMessageTool::new(hub)));
     }
 
     // Skills are discovered once, here, so the catalogue in the system
@@ -1674,7 +1682,7 @@ async fn one_shot(
     // The pictures are read before the agent is built, so a file that cannot
     // be read is refused before anything is asked.
     let pictures = load_images(&images)?;
-    let agent = build_agent(&config, !no_tools, None).await?;
+    let agent = build_agent(&config, !no_tools, None, None).await?;
     let sessions = Arc::new(tokio::sync::Mutex::new(SessionStore::open(
         config.state_dir.join("sessions"),
     )?));
@@ -1990,9 +1998,18 @@ async fn serve_gateway(
     }
 
     // The scheduler is built after the agent, but the agent's tools need a
-    // place to find it, so they are given a slot to look in.
+    // place to find it, so they are given a slot to look in. The same is
+    // true of the channels: a message the assistant starts on its own is
+    // addressed through a hub that is filled when the channels start.
     let slot = crate::tool::schedule::SchedulerSlot::new();
-    let agent = build_agent(&config, config.tools_enabled, Some(slot.clone())).await?;
+    let hub = crate::channel::ChannelHub::new();
+    let agent = build_agent(
+        &config,
+        config.tools_enabled,
+        Some(slot.clone()),
+        Some(hub.clone()),
+    )
+    .await?;
     let sessions = Arc::new(tokio::sync::Mutex::new(SessionStore::open(
         config.state_dir.join("sessions"),
     )?));
@@ -2040,6 +2057,9 @@ async fn serve_gateway(
                 println!("{} channel enabled", channel.name());
                 // A job that answers in this channel is sent through it.
                 scheduler.add_channel(channel.clone());
+                // A message the assistant starts on her own is sent through
+                // a channel looked up by name.
+                hub.add(channel.clone());
             }
 
             let _handles = crate::channel::spawn_channels(channels, runner, event_tx, approvers);

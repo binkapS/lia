@@ -10,11 +10,14 @@
 //! change the system are gated behind an approval policy.
 
 pub mod discord;
+pub mod hub;
 pub mod pairing;
 pub mod slack;
 pub mod telegram;
 pub mod terminal;
 pub mod whatsapp;
+
+pub use hub::ChannelHub;
 
 use std::collections::HashMap;
 use std::sync::Arc;

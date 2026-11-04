@@ -141,30 +141,29 @@ impl SessionStore {
     /// Write a session to disk, if the store has a directory.
     pub fn persist(&self, session: &Session) -> std::io::Result<()> {
         let Some(dir) = &self.dir else { return Ok(()) };
-        std::fs::create_dir_all(dir)?;
-        let path = self.path_for(dir, &session.id);
-        let json = serde_json::to_string_pretty(session)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        // Write to a temp file and rename, so an interrupted write cannot
-        // leave a half-written session behind.
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, json)?;
-        std::fs::rename(&tmp, &path)?;
-        Ok(())
+        write_session(dir, session)
     }
 
-    fn path_for(&self, dir: &Path, id: &str) -> PathBuf {
-        // Session ids come from the network, so strip anything path-like.
-        let safe: String = id
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-            .collect();
-        let safe = if safe.is_empty() {
-            "session".to_string()
-        } else {
-            safe
-        };
-        dir.join(format!("{safe}.json"))
+    /// The directory the store writes to, if any.
+    pub fn dir(&self) -> Option<&Path> {
+        self.dir.as_deref()
+    }
+
+    /// Write one session file to `dir` on the blocking thread pool.
+    ///
+    /// The write rewrites the whole history as one file, so it must not
+    /// happen while the caller holds the sessions lock — everything else
+    /// in the gateway reads through that same lock. The caller takes the
+    /// lock only to make the snapshot and copy the directory out, then
+    /// hands both here; the lock stays free while the disk works.
+    pub async fn save_off_runtime(dir: Option<PathBuf>, session: Session) {
+        let Some(dir) = dir else { return };
+        let written = tokio::task::spawn_blocking(move || write_session(&dir, &session)).await;
+        match written {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => tracing::warn!("could not save the session file: {e}"),
+            Err(e) => tracing::warn!("the session save did not finish: {e}"),
+        }
     }
 
     pub fn get(&self, id: &str) -> Option<&Session> {
@@ -191,7 +190,7 @@ impl SessionStore {
     pub fn remove(&mut self, id: &str) -> Option<Session> {
         let session = self.sessions.remove(id);
         if let (Some(_session), Some(dir)) = (&session, &self.dir) {
-            let _ = std::fs::remove_file(self.path_for(dir, id));
+            let _ = std::fs::remove_file(path_for(dir, id));
         }
         session
     }
@@ -210,4 +209,37 @@ impl SessionStore {
     pub fn is_empty(&self) -> bool {
         self.sessions.is_empty()
     }
+}
+
+/// Where a session file lands, with any path-like part of the id removed.
+///
+/// Session ids come from the network, so strip anything path-like.
+fn path_for(dir: &Path, id: &str) -> PathBuf {
+    let safe: String = id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    let safe = if safe.is_empty() {
+        "session".to_string()
+    } else {
+        safe
+    };
+    dir.join(format!("{safe}.json"))
+}
+
+/// Write one session file: the work behind [`SessionStore::persist`].
+///
+/// A free function so the write can be handed to a blocking thread while
+/// the store's lock stays free.
+fn write_session(dir: &Path, session: &Session) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let path = path_for(dir, &session.id);
+    let json = serde_json::to_string_pretty(session)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    // Write to a temp file and rename, so an interrupted write cannot
+    // leave a half-written session behind.
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, json)?;
+    std::fs::rename(&tmp, &path)?;
+    Ok(())
 }

@@ -211,6 +211,10 @@
         <span class="channel">Command Console</span>
         <span class="stat session" id="channelSession">standby</span>
         <span class="bar-spacer"></span>
+        <button class="console-expand console-open-modal" id="consoleExpand" type="button" aria-label="open console as modal" title="open the console in a larger view" data-action="open-console-modal">
+          <span class="console-expand-glyph" aria-hidden="true"> ( ) </span>
+          <span class="console-expand-label">open console</span>
+        </button>
         <span class="stat" id="msgCount">00 entries</span>
         <span class="stat" id="usage">tokens —</span>
       </div>
@@ -258,7 +262,10 @@
               <option value="camera">camera</option>
               <option value="screen">screen</option>
             </select>
-            <button class="hint-button" id="liveToggle" type="button">live: off</button>
+            <button class="hint-button live-toggle" id="liveToggle" type="button" aria-pressed="false">
+              <span class="live-toggle-track" aria-hidden="true"><span class="live-toggle-thumb"></span></span>
+              <span class="live-toggle-text">live: off</span>
+            </button>
           </span>
           <span class="hint-spacer"></span>
           <span class="chars" id="charCount">000</span>
@@ -322,6 +329,7 @@
 </div>
 
 <div class="drawer-scrim" id="drawerScrim" hidden></div>
+<div class="console-modal-scrim" id="consoleModalScrim" hidden></div>
 
 <aside class="drawer" id="sessionDrawer" aria-label="session index" hidden>
   <button class="drawer-close" id="drawerClose" type="button" aria-label="close sessions">×</button>

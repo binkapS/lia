@@ -930,3 +930,74 @@ body.busy .orb-halo { animation-duration: 2.6s; }
   .sys-tile { padding: 4px 6px 2px; }
   .spark { height: 15px; }
 }
+
+/* Console — open as a larger modal view ----------------------------- */
+.console-expand {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  margin-left: 4px;
+  border: 1px solid var(--nexus-line);
+  border-radius: 3px;
+  background: rgba(34, 211, 238, 0.035);
+  color: var(--muted);
+  font: inherit;
+  font-size: 7px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+.console-expand:hover {
+  color: var(--cyan-soft);
+  border-color: var(--nexus-line-hot);
+  background: rgba(34, 211, 238, 0.09);
+}
+.console-expand .console-expand-glyph {
+  color: var(--nexus-cyan);
+  font-size: 9px;
+  line-height: 1;
+}
+.console-expand.is-open {
+  color: var(--nexus-cyan);
+  border-color: var(--nexus-line-hot);
+  box-shadow: inset 0 0 0 1px rgba(34, 211, 238, 0.18);
+}
+
+.console-modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 4, 8, 0.74);
+  backdrop-filter: blur(4px);
+}
+.console-modal-scrim[hidden] { display: none; }
+
+body.console-modal-open {
+  overflow: hidden;
+}
+body.console-modal-open .console {
+  position: fixed;
+  inset: 18px;
+  z-index: 41;
+  border-radius: 10px;
+  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.78);
+  background: var(--nexus-panel);
+}
+body.console-modal-open .console .conversation {
+  font-size: 1.02rem;
+}
+/* Desktop size: emphasise the option and give the console room. */
+@media (min-width: 1121px) {
+  body.console-modal-open .console {
+    inset: 28px;
+  }
+}
+@media (min-width: 881px) {
+  .console-bar .console-expand { display: inline-flex; }
+}
+@media (max-width: 880px) {
+  .console-bar .console-expand { display: inline-flex; }
+}

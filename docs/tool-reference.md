@@ -25,3 +25,6 @@
 
 ## Tasks
 - `task` tooling
+
+## Messaging
+- `send_message` (approval): send a message the assistant starts on her own — a report on a long job, a note to another conversation. Leave `channel` and `conversation` out to send to the chat the turn is running in (a chat session is `channel:conversation`); name both, e.g. `channel: "telegram"`, `conversation: "123456789"`, to send somewhere else. Refuses half an address and knows only channels that are running.

@@ -612,9 +612,13 @@ async fn create_session(
     let mut sessions = state.sessions.lock().await;
     let session = Session::new(&id, &source);
     sessions.insert(session.clone());
-    if let Err(e) = sessions.persist(&session) {
-        tracing::warn!("could not persist session {id}: {e}");
-    }
+    // A new session is a tiny file, but it is written under the same
+    // sessions lock as everything else; the write goes to the blocking
+    // pool once the lock is free. The lock is dropped first so the
+    // handler does not hold it across the await.
+    let dir = sessions.dir().map(|d| d.to_path_buf());
+    drop(sessions);
+    SessionStore::save_off_runtime(dir, session.clone()).await;
     (StatusCode::CREATED, Json(summarize(&session))).into_response()
 }
 
@@ -698,17 +702,20 @@ async fn send_message(
 
     let _ = handle.await;
 
-    // Persist the updated session.
-    {
+    // Persist the updated session. The snapshot is made under the
+    // sessions lock, but the write runs off the runtime so a slow disk
+    // cannot stall the lock everyone else reads through.
+    let saved = {
         let mut sessions = state.sessions.lock().await;
-        if let Some(session) = sessions.get_mut(&id) {
+        let dir = sessions.dir().map(|d| d.to_path_buf());
+        sessions.get_mut(&id).map(|session| {
             session.derive_title();
             session.touch();
-            let snapshot = session.clone();
-            if let Err(e) = sessions.persist(&snapshot) {
-                tracing::warn!("could not persist session {id}: {e}");
-            }
-        }
+            (dir, session.clone())
+        })
+    };
+    if let Some((dir, snapshot)) = saved {
+        SessionStore::save_off_runtime(dir, snapshot).await;
     }
 
     Json(SendMessageResponse {

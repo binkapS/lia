@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 
 use crate::config::Config;
 use crate::system;
+use crate::system::SystemSnapshot;
 use crate::tool::{Result, Tool, ToolOutput};
 
 /// How long the tools sample the CPU and network for.
@@ -27,6 +28,24 @@ fn sample_ms(args: &Value) -> Duration {
         .unwrap_or(TOOL_SAMPLE.as_millis() as u64)
         .clamp(0, 2_000);
     Duration::from_millis(milliseconds)
+}
+
+/// Read the machine, off the async runtime.
+///
+/// Reading blocks: it sleeps for the sample window, then walks `/proc`
+/// and `/sys`. Those belong on the blocking thread pool, because a tokio
+/// worker stuck there holds up everything else that runs on the
+/// runtime — including the gateway that is watching the machine at the
+/// very moment the tool reads it.
+async fn collect(sample: Duration) -> SystemSnapshot {
+    let read = tokio::task::spawn_blocking(move || system::collect(sample));
+    match read.await {
+        Ok(snapshot) => snapshot,
+        Err(e) => {
+            tracing::warn!("a system read did not finish: {e}");
+            SystemSnapshot::default()
+        }
+    }
 }
 
 fn status_mark(status: &str) -> &'static str {
@@ -79,7 +98,7 @@ impl Tool for SystemHealthTool {
             .and_then(Value::as_str)
             .map(|detail| detail.eq_ignore_ascii_case("full"))
             .unwrap_or(false);
-        let snapshot = system::collect(sample_ms(&args));
+        let snapshot = collect(sample_ms(&args)).await;
 
         let mut out = String::from("# System health\n\n");
         out.push_str(&format!(
@@ -264,7 +283,7 @@ impl Tool for ProcessListTool {
             .unwrap_or(12)
             .clamp(1, 50) as usize;
 
-        let snapshot = system::collect(sample_ms(&args));
+        let snapshot = collect(sample_ms(&args)).await;
         let mut processes = snapshot.processes.clone();
         if by_memory {
             processes.sort_by_key(|a| std::cmp::Reverse(a.memory_bytes));
@@ -332,7 +351,7 @@ impl Tool for NetworkStatusTool {
     }
 
     async fn run(&self, args: Value) -> Result<ToolOutput> {
-        let snapshot = system::collect(sample_ms(&args));
+        let snapshot = collect(sample_ms(&args)).await;
         let network = &snapshot.network;
         let mut out = format!(
             "# Network\n\nThroughput: ↓ {}/s · ↑ {}/s\nTotals: ↓ {} · ↑ {}\n\n",
@@ -394,7 +413,7 @@ impl Tool for DiagnosticsTool {
     }
 
     async fn run(&self, args: Value) -> Result<ToolOutput> {
-        let snapshot = system::collect(sample_ms(&args));
+        let snapshot = collect(sample_ms(&args)).await;
         let mut out = String::from("# Diagnostic scan\n\n");
         out.push_str(&format!(
             "**{}** — {} (score {}/100)\n\n",

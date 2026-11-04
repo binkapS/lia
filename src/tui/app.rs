@@ -341,7 +341,12 @@ impl App {
         // a place to find it, so they are given a slot to look in.
         let slot = crate::tool::schedule::SchedulerSlot::new();
         let agent =
-            crate::cli::build_agent(&self.config, self.config.tools_enabled, Some(slot.clone()))
+            crate::cli::build_agent(
+                &self.config,
+                self.config.tools_enabled,
+                Some(slot.clone()),
+                None,
+            )
                 .await?;
         let sessions = Arc::new(tokio::sync::Mutex::new(SessionStore::open(
             self.config.state_dir.join("sessions"),

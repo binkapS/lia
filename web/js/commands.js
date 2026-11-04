@@ -726,8 +726,18 @@ function handleVoiceText(text, mode) {
 
 function updateLiveControls() {
   if (!el.liveToggle) return;
-  el.liveToggle.textContent = "live: " + (state.voice.live ? "on" : "off");
-  el.liveToggle.classList.toggle("active", !!state.voice.live);
+  const live = !!state.voice.live;
+  el.liveToggle.classList.toggle("active", live);
+  el.liveToggle.setAttribute("aria-pressed", String(live));
+  el.liveToggle.dataset.state = live ? "on" : "off";
+  const text = el.liveToggle.querySelector
+    ? el.liveToggle.querySelector(".live-toggle-text")
+    : null;
+  if (text) {
+    text.textContent = "live: " + (live ? "on" : "off");
+  } else {
+    el.liveToggle.textContent = "live: " + (live ? "on" : "off");
+  }
   if (el.liveShare && state.voice.liveShare) {
     el.liveShare.value = state.voice.liveShare;
   }
