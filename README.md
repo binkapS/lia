@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](docs/licence.md)
 ![Rust 2024](https://img.shields.io/badge/rust-2024-orange.svg)
-[![M8ven Score](https://m8ven.ai/badge/mcp/binkaps-lia-19wcrc)](https://m8ven.ai/mcp/binkaps-lia-19wcrc?s=readme)
+
 
 ## Preview
 
