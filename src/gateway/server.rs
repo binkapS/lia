@@ -994,7 +994,7 @@ async fn handle_socket(socket: WebSocket, state: GatewayState) {
             // Keep the socket warm so an idle transport does not close a
             // turn the client never saw finish.
             _ = keepalive.tick() => {
-                if sink.send(WsMessage::Ping(vec![])).await.is_err() {
+                if sink.send(WsMessage::Ping(vec![].into())).await.is_err() {
                     break;
                 }
             }
