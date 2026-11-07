@@ -12,6 +12,7 @@ const state = {
   requests: new Map(),
   nextId: 1,
   retry: 2000,
+  socketWasOpen: false,
   busy: false,
   follow: true,
   streaming: null,
@@ -195,6 +196,13 @@ function connect() {
   socket.addEventListener("open", () => {
     state.retry = 2000;
     setConnected(true);
+    /* On a reconnect (not the first link), re-read the open session so
+       anything produced while the socket was down is re-fetched from the
+       gateway instead of being left as a stale partial entry. */
+    if (state.sessionId && state.socketWasOpen) {
+      openSession(state.sessionId);
+    }
+    state.socketWasOpen = true;
     loadSessions();
   });
 

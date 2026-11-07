@@ -116,6 +116,9 @@ function endTurn() {
 
   for (const which of [state.streaming, state.thinking]) {
     if (!which) continue;
+    /* Painting the final queued render before stripping the caret means
+       the last tokens of a long thinking trace are never lost. */
+    flushStreamRender(which);
     which.classList.remove("streaming");
     which.querySelectorAll(".caret").forEach((caret) => caret.remove());
     if (!which.dataset.raw) {
@@ -198,6 +201,54 @@ function addCaret(entry) {
   }
 }
 
+/* Streaming deltas used to re-render the *whole* entry with markdown on
+   every token. A long thinking trace then becomes O(n²) work on the main
+   thread: the UI visibly freezes while the model keeps producing, TCP
+   buffers fill, and the gateway's bounded queues back up. Coalescing the
+   renders to one per animation frame (and never more often than ~30fps)
+   keeps the page responsive even with thousands of deltas. */
+const STREAM_MIN_GAP_MS = 32;
+
+function renderStreamEntry(entry) {
+  const body = entry.querySelector(".body");
+  if (!body) return;
+  body.innerHTML = markdown(entry.dataset.raw || "");
+  addCaret(entry);
+  follow();
+}
+
+function scheduleStreamRender(entry) {
+  if (!entry || entry._renderQueued) return;
+  entry._renderQueued = true;
+  const render = () => {
+    entry._renderQueued = false;
+    if (entry._lastRenderAt) {
+      const gap = Date.now() - entry._lastRenderAt;
+      if (gap < STREAM_MIN_GAP_MS) {
+        window.setTimeout(render, STREAM_MIN_GAP_MS - gap);
+        entry._renderQueued = true;
+        return;
+      }
+    }
+    entry._lastRenderAt = Date.now();
+    renderStreamEntry(entry);
+  };
+  if (document.hidden) {
+    /* requestAnimationFrame is paused for hidden tabs, which would hide
+       the newest content entirely. A timer keeps the transcript fresh. */
+    window.setTimeout(render, 100);
+  } else {
+    window.requestAnimationFrame(render);
+  }
+}
+
+function flushStreamRender(entry) {
+  if (!entry) return;
+  entry._renderQueued = false;
+  entry._lastRenderAt = Date.now();
+  renderStreamEntry(entry);
+}
+
 function streamText(text) {
   if (!state.streaming) {
     state.streaming = addLine("assistant", "");
@@ -205,10 +256,7 @@ function streamText(text) {
   }
   const entry = state.streaming;
   entry.dataset.raw = (entry.dataset.raw || "") + text;
-  const body = entry.querySelector(".body");
-  body.innerHTML = markdown(entry.dataset.raw);
-  addCaret(entry);
-  follow();
+  scheduleStreamRender(entry);
 }
 
 function streamThinking(text) {
@@ -218,10 +266,7 @@ function streamThinking(text) {
   }
   const entry = state.thinking;
   entry.dataset.raw = (entry.dataset.raw || "") + text;
-  const body = entry.querySelector(".body");
-  body.innerHTML = markdown(entry.dataset.raw);
-  addCaret(entry);
-  follow();
+  scheduleStreamRender(entry);
 }
 
 /* A tool, and what came of it. */

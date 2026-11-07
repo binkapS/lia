@@ -652,8 +652,9 @@ async fn send_message(
     Json(request): Json<SendMessageRequest>,
 ) -> Response {
     // Collect every event the turn produces so the HTTP caller gets the whole
-    // trace, not just the final text.
-    let (tx, mut rx) = mpsc::channel(256);
+    // trace, not just the final text. Sized like the WebSocket queues so a
+    // long reasoning trace does not back-pressure the provider.
+    let (tx, mut rx) = mpsc::channel(4096);
     let runner = state.runner.clone();
     let session_id = id.clone();
     let content = request.content.clone();
@@ -964,7 +965,12 @@ impl Sink {
 /// Handle one WebSocket connection.
 async fn handle_socket(socket: WebSocket, state: GatewayState) {
     let (mut sink, mut stream) = socket.split();
-    let (out_tx, mut out_rx) = mpsc::channel::<OutFrame>(256);
+    // Sized for a long thinking trace: a reasoning model can emit thousands
+    // of deltas while the browser is still painting. A small queue backs
+    // the forwarder up into the agent, which back-pressures the provider
+    // stream and freezes the whole turn.
+    let (out_tx, mut out_rx) = mpsc::channel::<OutFrame>(4096);
+    let mut keepalive = tokio::time::interval(std::time::Duration::from_secs(20));
 
     // Whether this client speaks the request/response envelope. It is set
     // the first time a request arrives.
@@ -984,6 +990,14 @@ async fn handle_socket(socket: WebSocket, state: GatewayState) {
 
     loop {
         tokio::select! {
+            // A model deep in thought may produce no deltas for a while.
+            // Keep the socket warm so an idle transport does not close a
+            // turn the client never saw finish.
+            _ = keepalive.tick() => {
+                if sink.send(WsMessage::Ping(vec![])).await.is_err() {
+                    break;
+                }
+            }
             // Outbound: events from the broadcaster and turn results.
             Some(frame) = out_rx.recv() => {
                 let text = match serde_json::to_string(&frame) {
@@ -1176,8 +1190,9 @@ async fn handle_client_message(
 
             tokio::spawn(async move {
                 // Give this turn its own event channel and forward it to the
-                // socket.
-                let (tx, mut rx) = mpsc::channel::<AgentEvent>(256);
+                // socket. Deep thinking produces many small deltas; a tiny
+                // queue would stall the agent when the browser is painting.
+                let (tx, mut rx) = mpsc::channel::<AgentEvent>(4096);
                 let forward_sink = sink.clone();
                 let forwarder = tokio::spawn(async move {
                     let mut usage = None;
