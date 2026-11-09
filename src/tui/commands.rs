@@ -92,6 +92,31 @@ pub const COMMANDS: &[CommandSpec] = &[
         description: "start a new session",
     },
     CommandSpec {
+        name: "/thoughts",
+        args: "",
+        description: "show or hide the model's thinking",
+    },
+    CommandSpec {
+        name: "/copy",
+        args: "",
+        description: "copy the transcript to the clipboard",
+    },
+    CommandSpec {
+        name: "/interrupt",
+        args: "",
+        description: "stop the turn that is running now",
+    },
+    CommandSpec {
+        name: "/queue",
+        args: "<text>",
+        description: "send a message once the current turn ends",
+    },
+    CommandSpec {
+        name: "/delegate",
+        args: "<task>",
+        description: "split the task and hand parts to sub-assistants",
+    },
+    CommandSpec {
         name: "/quit",
         args: "",
         description: "leave the interface",
