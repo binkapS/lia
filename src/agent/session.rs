@@ -57,11 +57,12 @@ impl Session {
             let text = first.text().trim().replace('\n', " ");
             if !text.is_empty() {
                 let title: String = text.chars().take(60).collect();
-                self.title = if text.chars().count() > 60 {
+                let title = if text.chars().count() > 60 {
                     format!("{title}…")
                 } else {
                     title
                 };
+                self.title = format!("Lia | {title}");
             }
         }
     }

@@ -1648,6 +1648,7 @@ pub async fn build_agent(
         tools_enabled: tools_enabled && config.tools_enabled,
         system_prompt: Some(system_prompt),
         approval: config.approval.clone(),
+        model: Some(config.effective_model().to_string()),
         ..Default::default()
     };
 

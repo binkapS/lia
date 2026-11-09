@@ -98,6 +98,9 @@ pub struct AgentConfig {
     pub compaction_threshold: f64,
     /// Maximum tokens the model may generate per response.
     pub max_output_tokens: Option<usize>,
+    /// The model id the agent uses, for lightweight follow-up calls such as
+    /// naming a session.
+    pub model: Option<String>,
     pub temperature: Option<f64>,
     /// Size of the model's context window in tokens. Used to decide when to
     /// compact. Falls back to a conservative default when unknown.
@@ -113,6 +116,7 @@ impl Default for AgentConfig {
             approval: ApprovalConfig::default(),
             compaction_threshold: 0.8,
             max_output_tokens: None,
+            model: None,
             temperature: None,
             context_window: 128_000,
         }
@@ -880,6 +884,42 @@ impl SessionRunner {
         self.create_session(session_id).await
     }
 
+    /// Ask the model for a short name for this session.
+    async fn suggest_session_title(&self, messages: &[Message]) -> Option<String> {
+        let mut transcript = String::new();
+        for m in messages.iter().take(8) {
+            let role = match m.role {
+                crate::provider::types::Role::User => "User",
+                crate::provider::types::Role::Assistant => "Assistant",
+                _ => continue,
+            };
+            let text = m.text().trim().replace('\n', " ");
+            if !text.is_empty() {
+                transcript.push_str(&format!("{role}: {}\n", text.chars().take(200).collect::<String>()));
+            }
+        }
+        if transcript.trim().is_empty() {
+            return None;
+        }
+        let model = self.agent.config().model.clone().unwrap_or_default();
+        if model.is_empty() {
+            return None;
+        }
+        let request = crate::provider::types::CompletionRequest {
+            model,
+            system: Some(
+                "Name this chat session in three to six words. Reply with the title only.".to_string(),
+            ),
+            messages: vec![Message::user(transcript)],
+            max_output_tokens: Some(24),
+            ..Default::default()
+        };
+        let response = self.agent.provider().complete(&request).await.ok()?;
+        let mut title = response.text().trim().to_string();
+        title = title.trim_matches('"').trim_matches('\'').trim().to_string();
+        if title.is_empty() { None } else { Some(title) }
+    }
+
     /// Run a turn for a session, appending the result to its history.
     ///
     /// Returns what the assistant said, so a caller that is not watching
@@ -947,6 +987,19 @@ impl SessionRunner {
         // snapshot is made under the sessions lock, but the write happens
         // off the runtime: rewriting the whole history file is disk work
         // that must not hold the lock everybody else reads through.
+        let needs_title = {
+            let store = self.sessions.lock().await;
+            store
+                .get(session_id)
+                .map(|s| s.title == "New session")
+                .unwrap_or(false)
+        };
+        let suggested_title = if needs_title {
+            self.suggest_session_title(&messages).await
+        } else {
+            None
+        };
+
         let saved = {
             let mut store = self.sessions.lock().await;
             let dir = store.dir().map(|d| d.to_path_buf());
@@ -954,10 +1007,15 @@ impl SessionRunner {
                 Some(session) => {
                     session.messages = messages;
                     session.touch();
-                    // A session that has never been named takes its name
-                    // from the first thing the user said.
+                    // A session that has never been named gets a short title
+                    // from the model; falling back to the first message when
+                    // the model cannot be asked.
                     if session.title == "New session" {
-                        session.derive_title();
+                        if let Some(title) = suggested_title {
+                            session.title = format!("Lia | {title}");
+                        } else {
+                            session.derive_title();
+                        }
                     }
                     Some((dir, session.clone()))
                 }
