@@ -162,7 +162,21 @@
   border-left: 1px dashed var(--line-2);
   padding-left: 10px;
 }
-.entry.thinking .role-glyph { color: var(--muted); }
+ .entry.thinking .role-glyph { color: var(--muted); }
+.entry.thinking .thought-toggle {
+  font: inherit;
+  color: var(--muted);
+  background: none;
+  border: 1px dashed var(--line-2);
+  border-radius: 2px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-style: italic;
+}
+.entry.thinking .thought-toggle:hover { color: var(--text); border-color: var(--line-hot); }
+.entry.thinking.expanded .thought-toggle { color: var(--text); }
+.entry.thinking .thought-body { margin-top: 6px; }
 
 .entry.notice .entry-body { color: var(--violet); font-size: 12px; }
 .entry.notice .role-glyph { color: var(--violet); }

@@ -9,6 +9,7 @@
 //! two servers offering a `search` tool do not collide.
 
 pub mod http;
+pub mod import;
 pub mod server;
 pub mod stdio;
 
@@ -124,35 +125,58 @@ impl McpClient {
 
     /// The tools the server offers.
     pub async fn list_tools(&self) -> Result<Vec<McpToolInfo>> {
-        let result = self.request("tools/list", json!({})).await?;
-        let tools = result
-            .get("tools")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
+        let mut collected: Vec<McpToolInfo> = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let params = match &cursor {
+                Some(c) => json!({ "cursor": c }),
+                None => json!({}),
+            };
+            let result = self.request("tools/list", params).await?;
+            let tools = result
+                .get("tools")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
 
-        Ok(tools
-            .into_iter()
-            .filter_map(|tool| {
-                let name = tool.get("name")?.as_str()?.to_string();
+            for tool in tools {
+                let name = match tool.get("name").and_then(Value::as_str) {
+                    Some(n) => n.to_string(),
+                    None => continue,
+                };
+                // Some servers describe the input schema under a different
+                // key. Accept the common variants other agents' servers use.
+                let input_schema = tool
+                    .get("inputSchema")
+                    .or_else(|| tool.get("input_schema"))
+                    .or_else(|| tool.get("parameters"))
+                    .or_else(|| tool.get("input"))
+                    .cloned()
+                    .unwrap_or_else(|| json!({ "type": "object" }));
                 let description = tool
                     .get("description")
+                    .or_else(|| tool.get("title"))
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
-                let input_schema = tool
-                    .get("inputSchema")
-                    .cloned()
-                    .unwrap_or_else(|| json!({ "type": "object" }));
                 let annotations = tool.get("annotations").cloned();
-                Some(McpToolInfo {
+                collected.push(McpToolInfo {
                     name,
                     description,
                     input_schema,
                     annotations,
-                })
-            })
-            .collect())
+                });
+            }
+
+            cursor = result
+                .get("nextCursor")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            if cursor.is_none() {
+                break;
+            }
+        }
+        Ok(collected)
     }
 
     /// Call a tool on the server.
@@ -235,7 +259,7 @@ impl McpTool {
             .and_then(|annotations| annotations.get("readOnlyHint"))
             .and_then(Value::as_bool);
         McpTool {
-            name: format!("{server}__{}", info.name),
+            name: format!("{}__{}", sanitize_name(server), sanitize_name(&info.name)),
             remote_name: info.name,
             description: info.description,
             input_schema: info.input_schema,
@@ -243,6 +267,22 @@ impl McpTool {
             client,
         }
     }
+}
+
+/// Keep a name to the shape function-calling APIs accept.
+fn sanitize_name(input: &str) -> String {
+    let mut out = String::new();
+    for ch in input.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+    if out.is_empty() {
+        out.push('_');
+    }
+    out
 }
 
 #[async_trait]
@@ -350,3 +390,12 @@ impl McpRegistry {
         self.clients.is_empty()
     }
 }
+
+
+// Convenience re-exports from the import module.
+pub use import::{
+    discover_mcp_servers, import_mcp_config, import_mcp_servers, load_mcp_config,
+    mcp_servers_from_file, mcp_servers_from_path, parse_claude_mcp_config, parse_copilot_mcp_config,
+    parse_generic_mcp_config, parse_mcp_config, parse_mcp_config_str, parse_mcp_config_value,
+    parse_opencode_mcp_config, parse_openclaw_mcp_config, parse_vscode_mcp_config,
+};

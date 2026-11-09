@@ -204,6 +204,15 @@ pub struct Config {
     pub mcp_enabled: bool,
     /// The MCP servers lia knows about, by name.
     pub mcp_servers: HashMap<String, McpServerConfig>,
+    /// Extra MCP config files written by other agents (opencode, Claude Code,
+    /// Copilot, OpenClaw, ...). These are imported before use.
+    #[serde(default)]
+    pub mcp_imports: Vec<PathBuf>,
+    /// Whether common per-workspace and per-user MCP config files from other
+    /// agents are discovered on their own. Off by default; lia never reaches
+    /// outside the workspace or the user's own config files for this.
+    #[serde(default)]
+    pub mcp_auto_discover: bool,
     /// The folders the file server may work in.
     pub filesystem: FilesystemConfig,
     /// Log level for tracing.
@@ -248,6 +257,8 @@ impl Default for Config {
             extra_skill_dirs: Vec::new(),
             mcp_enabled: true,
             mcp_servers: HashMap::new(),
+            mcp_imports: Vec::new(),
+            mcp_auto_discover: false,
             filesystem: FilesystemConfig::default(),
             log_level: "info".to_string(),
             theme: ThemeKind::default(),
@@ -626,6 +637,9 @@ pub struct McpServerConfig {
     pub url: Option<String>,
     /// Extra headers to send to an HTTP server.
     pub headers: HashMap<String, String>,
+    /// Working directory for a stdio server, when one is needed.
+    #[serde(default)]
+    pub cwd: Option<PathBuf>,
     /// How long to wait for an answer, in seconds.
     pub timeout_secs: u64,
 }
@@ -640,6 +654,7 @@ impl Default for McpServerConfig {
             env: HashMap::new(),
             url: None,
             headers: HashMap::new(),
+            cwd: None,
             timeout_secs: 60,
         }
     }
@@ -1188,3 +1203,13 @@ pub fn default_system_prompt() -> &'static str {
      Keep responses concise. Reference files as path:line so the user can jump \
      straight to them."
 }
+
+// Re-export MCP import helpers so config files from other agents can be
+// loaded through the same module callers already use for their settings.
+pub use crate::mcp::import::{
+    discover_mcp_servers, import_mcp_config, import_mcp_servers, load_mcp_config,
+    mcp_servers_from_file, mcp_servers_from_path, parse_claude_mcp_config,
+    parse_copilot_mcp_config, parse_generic_mcp_config, parse_mcp_config, parse_mcp_config_str,
+    parse_mcp_config_value, parse_opencode_mcp_config, parse_openclaw_mcp_config,
+    parse_vscode_mcp_config,
+};

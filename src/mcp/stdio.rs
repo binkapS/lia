@@ -43,6 +43,10 @@ impl StdioTransport {
             .stderr(ProcessStdio::piped())
             .kill_on_drop(true);
 
+        if let Some(cwd) = &config.cwd {
+            cmd.current_dir(cwd);
+        }
+
         for (key, value) in &config.env {
             cmd.env(key, value);
         }

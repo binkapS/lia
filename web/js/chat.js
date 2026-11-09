@@ -142,7 +142,7 @@ function endTurn() {
 const ROLES = {
   user: { name: "OPERATOR", glyph: "❯" },
   assistant: { name: "LIA", glyph: "◆" },
-  thinking: { name: "TRACE", glyph: "◇" },
+  thinking: { name: "THOUGHT", glyph: "◇" },
   notice: { name: "SYSTEM", glyph: "·" },
   error: { name: "FAULT", glyph: "✗" },
   sub: { name: "SUB-AGENT", glyph: "↳" },
@@ -167,12 +167,39 @@ function addLine(kind, text) {
   roleBox.className = "entry-role";
   roleBox.innerHTML =
     '<span class="role-glyph">' + role.glyph + '</span><span class="role-name">' + role.name + "</span>";
+
   const body = document.createElement("div");
   body.className = "entry-body";
-  const inner = document.createElement("div");
-  inner.className = "body";
-  inner.innerHTML = markdown(text);
-  body.appendChild(inner);
+
+  if (kind === "thinking") {
+    /* Thoughts stay out of the way until the reader asks for them. */
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "thought-toggle";
+    toggle.textContent = "Thought";
+    toggle.setAttribute("aria-expanded", "false");
+
+    const inner = document.createElement("div");
+    inner.className = "body thought-body";
+    inner.hidden = true;
+    inner.innerHTML = markdown(text);
+
+    toggle.addEventListener("click", () => {
+      const open = inner.hidden;
+      inner.hidden = !open;
+      toggle.setAttribute("aria-expanded", String(open));
+      entry.classList.toggle("expanded", open);
+    });
+
+    body.appendChild(toggle);
+    body.appendChild(inner);
+  } else {
+    const inner = document.createElement("div");
+    inner.className = "body";
+    inner.innerHTML = markdown(text);
+    body.appendChild(inner);
+  }
+
   entry.appendChild(roleBox);
   entry.appendChild(body);
   el.transcript.appendChild(entry);

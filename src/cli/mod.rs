@@ -1356,6 +1356,30 @@ fn load_config(cli: &Cli) -> Result<Config> {
 /// from the folders the config names.
 pub fn mcp_servers(config: &Config) -> HashMap<String, McpServerConfig> {
     let mut servers = config.mcp_servers.clone();
+
+    // MCP servers written by other agents, imported through the config.
+    for path in &config.mcp_imports {
+        match crate::mcp::parse_mcp_config(path) {
+            Ok(imported) => {
+                for (name, cfg) in imported {
+                    servers.entry(name).or_insert(cfg);
+                }
+            }
+            Err(e) => {
+                tracing::warn!("could not import MCP configuration {}: {e:#}", path.display());
+            }
+        }
+    }
+
+    // Optional auto-discovery of the usual per-workspace and per-user files.
+    if config.mcp_auto_discover {
+        let discovered =
+            crate::mcp::discover_mcp_servers(&config.workspace, dirs::home_dir().as_deref());
+        for (name, cfg) in discovered {
+            servers.entry(name).or_insert(cfg);
+        }
+    }
+
     if config.filesystem.allow.is_empty() {
         return servers;
     }
