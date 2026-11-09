@@ -127,6 +127,8 @@ pub enum ClientMessage {
     },
     /// Deny a pending tool call.
     Deny { request_id: String },
+    /// Interrupt a running turn.
+    Cancel { session_id: String },
     /// Subscribe to a session's events without sending a message.
     Subscribe { session_id: String },
     /// List the open sessions.

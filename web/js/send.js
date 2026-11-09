@@ -10,7 +10,9 @@ async function send() {
     return;
   }
   if (!text.startsWith("/") && state.busy) {
-    addLine("notice", "Lia is still working on the previous message.");
+    state.queue.push(text);
+    addLine("user", text);
+    addLine("notice", "Queued — it will be sent when the current turn ends.");
     return;
   }
   el.input.value = "";
@@ -90,7 +92,17 @@ async function deliver(text) {
   } finally {
     endTurn();
     loadSessions();
+    if (state.queue.length) {
+      const next = state.queue.shift();
+      if (next) {
+        sendQueued(next);
+      }
+    }
   }
+}
+
+async function sendQueued(text) {
+  await deliver(text);
 }
 
 function showUsage(usage) {
@@ -165,3 +177,16 @@ window.addEventListener("keydown", (event) => {
   }
 });
 
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && state.busy) {
+    if (state.sessionId && state.socket && state.socket.readyState === WebSocket.OPEN) {
+      state.socket.send(JSON.stringify({ type: "cancel", session_id: state.sessionId }));
+    }
+    window.setTimeout(() => {
+      if (state.busy) {
+        endTurn();
+        loadSessions();
+      }
+    }, 120);
+  }
+});

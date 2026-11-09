@@ -84,6 +84,36 @@ const COMMANDS = [
     run: commandLive,
   },
   {
+    name: "/thoughts",
+    args: "",
+    description: "thoughts are shown collapsed by default",
+    run: async function () { addLine("notice", "Thoughts stay collapsed until you open them."); },
+  },
+  {
+    name: "/copy",
+    args: "",
+    description: "the transcript can be selected in the browser",
+    run: async function () { addLine("notice", "Select the text and copy it with the browser."); },
+  },
+  {
+    name: "/interrupt",
+    args: "",
+    description: "stop the turn that is running now",
+    run: commandInterrupt,
+  },
+  {
+    name: "/queue",
+    args: "<text>",
+    description: "send a message once the current turn ends",
+    run: commandQueue,
+  },
+  {
+    name: "/delegate",
+    args: "<task>",
+    description: "split the task and hand parts to sub-assistants",
+    run: commandDelegate,
+  },
+  {
     name: "/quit",
     args: "",
     description: "close the console window",
@@ -504,6 +534,41 @@ function commandLive(arg) {
     startListening("live");
   }
   updateLiveControls();
+}
+
+
+async function commandInterrupt() {
+  if (state.busy && state.sessionId && state.socket && state.socket.readyState === WebSocket.OPEN) {
+    state.socket.send(JSON.stringify({ type: "cancel", session_id: state.sessionId }));
+    addLine("notice", "Interrupting the current turn.");
+  } else {
+    addLine("notice", "Nothing is running.");
+  }
+}
+
+async function commandQueue(args) {
+  if (!args) {
+    addLine("notice", "usage: /queue <text>");
+    return;
+  }
+  state.queue.push(args);
+  addLine("user", args);
+  addLine("notice", "Queued — it will be sent when the current turn ends.");
+}
+
+async function commandDelegate(args) {
+  if (!args) {
+    addLine("notice", "usage: /delegate <task>");
+    return;
+  }
+  const instruction = "Split this task into independent parts and delegate each part to a sub-assistant, then combine the results: " + args;
+  if (state.busy) {
+    state.queue.push(instruction);
+    addLine("user", args);
+    addLine("notice", "Queued for delegation.");
+  } else {
+    await deliver(instruction);
+  }
 }
 
 function commandQuit() {

@@ -26,6 +26,7 @@ const state = {
   suppressPreview: false,
   palette: { items: [], index: 0, kind: null },
   images: [],
+  queue: [],
   voice: {
     // lia speaks by default. The microphone stays shut until it is asked
     // for, so the page does not listen on its own.

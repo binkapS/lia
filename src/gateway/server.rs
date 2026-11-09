@@ -35,6 +35,7 @@ pub struct GatewayState {
     pub agent: Arc<Agent>,
     pub runner: Arc<SessionRunner>,
     pub sessions: Arc<Mutex<SessionStore>>,
+    pub turn_handles: Arc<std::sync::Mutex<std::collections::HashMap<String, tokio::task::JoinHandle<()>>>>,
     /// The local user's personal inbox, shared with the local CLI.
     pub inbox: Arc<Mutex<InboxStore>>,
     pub config: Arc<Config>,
@@ -87,6 +88,7 @@ impl Gateway {
             config: config.clone(),
             voice,
             skills,
+            turn_handles: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         };
 
         let app = Router::new()
@@ -1187,8 +1189,11 @@ async fn handle_client_message(
             let sessions = state.sessions.clone();
             let sink = sink.clone();
             let id = session_id.clone();
+            let turn_handles = state.turn_handles.clone();
+            let turn_handles_for_task = turn_handles.clone();
+            let task_id = id.clone();
 
-            tokio::spawn(async move {
+            let turn_task = tokio::spawn(async move {
                 // Give this turn its own event channel and forward it to the
                 // socket. Deep thinking produces many small deltas; a tiny
                 // queue would stall the agent when the browser is painting.
@@ -1222,7 +1227,7 @@ async fn handle_client_message(
                         images.iter().map(|image| image.to_block()).collect();
                     crate::provider::types::Message::user_with_images(content, blocks)
                 };
-                runner.run_message(&id, Some(message), tx).await;
+                runner.run_message(&task_id, Some(message), tx).await;
 
                 // Every event has been forwarded before the turn is reported
                 // as done.
@@ -1254,7 +1259,12 @@ async fn handle_client_message(
                         iterations,
                     })
                     .await;
+                // The turn is finished: forget its handle so a later
+                // interrupt cannot reach a completed task.
+                turn_handles_for_task.lock().unwrap().remove(&task_id);
             });
+
+            turn_handles.lock().unwrap().insert(id.clone(), turn_task);
 
             false
         }
@@ -1286,6 +1296,14 @@ async fn handle_client_message(
                     .await;
             }
             false
+        }
+        ClientMessage::Cancel { session_id } => {
+            if let Ok(mut handles) = state.turn_handles.lock() {
+                if let Some(handle) = handles.remove(&session_id) {
+                    handle.abort();
+                }
+            }
+            return false;
         }
         ClientMessage::Subscribe { session_id } => {
             let sessions = state.sessions.lock().await;
