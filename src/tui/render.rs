@@ -518,20 +518,33 @@ fn draw_transcript(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
         draw_live_entry(&mut lines, tool, width, app);
     }
     if !app.thinking.is_empty() {
-        let mut text = app.thinking.clone();
-        if app.busy {
-            text.push('▋');
+        if app.show_thinking {
+            let mut text = app.thinking.clone();
+            if app.busy {
+                text.push('▋');
+            }
+            push_text(
+                &mut lines,
+                &text,
+                width,
+                "◇ ",
+                theme.muted,
+                Style::default()
+                    .fg(theme.muted)
+                    .add_modifier(Modifier::ITALIC),
+            );
+        } else {
+            push_text(
+                &mut lines,
+                "Thought",
+                width,
+                "◇ ",
+                theme.muted,
+                Style::default()
+                    .fg(theme.muted)
+                    .add_modifier(Modifier::ITALIC),
+            );
         }
-        push_text(
-            &mut lines,
-            &text,
-            width,
-            "◇ ",
-            theme.muted,
-            Style::default()
-                .fg(theme.muted)
-                .add_modifier(Modifier::ITALIC),
-        );
     }
     if !app.streaming.is_empty() {
         let mut text = app.streaming.clone();
@@ -632,17 +645,32 @@ fn draw_entry(rows: &mut Vec<RatLine>, entry: &Line, width: usize, app: &App) {
             );
         }
         Line::Thinking(text) => {
-            // The model's own reasoning, kept apart from its answer.
-            push_text(
-                rows,
-                text,
-                width,
-                "◇ ",
-                theme.muted,
-                Style::default()
-                    .fg(theme.muted)
-                    .add_modifier(Modifier::ITALIC),
-            );
+            // The model's own reasoning, kept apart from its answer. It is
+            // hidden unless the reader asked for it, the way a thought is.
+            if !app.show_thinking {
+                push_text(
+                    rows,
+                    "Thought",
+                    width,
+                    "◇ ",
+                    theme.muted,
+                    Style::default()
+                        .fg(theme.muted)
+                        .add_modifier(Modifier::ITALIC),
+                );
+                let _ = text;
+            } else {
+                push_text(
+                    rows,
+                    text,
+                    width,
+                    "◇ ",
+                    theme.muted,
+                    Style::default()
+                        .fg(theme.muted)
+                        .add_modifier(Modifier::ITALIC),
+                );
+            }
         }
         Line::Tool {
             name,

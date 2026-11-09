@@ -169,6 +169,13 @@ pub struct App {
     pub thinking: String,
     /// The tool calls of the current turn.
     pub current_tools: Vec<Line>,
+    /// Messages typed while the assistant was busy; they are sent in order
+    /// once the turn ends.
+    pub queued_messages: VecDeque<String>,
+    /// The handle of the task currently running, so it can be interrupted.
+    pub busy_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Whether the model's thinking is shown expanded. Hidden by default.
+    pub show_thinking: bool,
     /// Status line text.
     pub status: String,
     /// When the action now being shown began, for the activity animation.
@@ -291,6 +298,9 @@ impl App {
             streaming: String::new(),
             thinking: String::new(),
             current_tools: Vec::new(),
+            queued_messages: VecDeque::new(),
+            busy_handle: None,
+            show_thinking: false,
             status: "ready".into(),
             action_started: None,
             speech_queue: VecDeque::new(),
@@ -550,6 +560,40 @@ impl App {
         Ok(())
     }
 
+    /// Send a message directly, without going through the input box.
+    ///
+    /// Used by the queue and by a hand-off of work to another assistant.
+    pub fn submit_text(&mut self, text: String) {
+        if text.is_empty() {
+            return;
+        }
+        if self.busy {
+            self.queued_messages.push_back(text);
+            return;
+        }
+
+        self.transcript.push(Line::User(text.clone()));
+        self.scroll_to_bottom();
+
+        let message = crate::provider::types::Message::user(text);
+
+        let runner = self.runner.clone();
+        let session_id = self.session_id.clone();
+        let event_tx = self.event_tx.clone();
+
+        if let (Some(runner), Some(event_tx)) = (runner, event_tx) {
+            let handle = tokio::spawn(async move {
+                runner
+                    .run_message(&session_id, Some(message), event_tx)
+                    .await;
+            });
+            self.busy_handle = Some(handle);
+        }
+        self.busy = true;
+        self.status = "thinking".into();
+        self.action_started = Some(std::time::Instant::now());
+    }
+
     /// Apply an agent event to the state.
     pub async fn apply_event(&mut self, event: AgentEvent) {
         match event {
@@ -629,6 +673,7 @@ impl App {
                 self.action_started = None;
                 // The answer has been said sentence by sentence while it
                 // arrived. Only the unfinished tail is left to say.
+                self.busy_handle = None;
                 self.flush_speech();
                 self.flush_turn();
                 if self.live && self.pending_live_message.is_some() {
@@ -640,6 +685,10 @@ impl App {
                         self.input.set_text(&text);
                         self.submit();
                     }
+                }
+                if !self.queued_messages.is_empty() {
+                    let next = self.queued_messages.pop_front().unwrap();
+                    self.submit_text(next);
                 }
                 self.listen_after_speech();
                 if self.live {
@@ -656,6 +705,7 @@ impl App {
                 self.speech_buffer.clear();
                 self.composer.begin();
                 self.transcript.push(Line::Error(message));
+                self.busy_handle = None;
                 self.flush_turn();
                 if self.live && self.pending_live_message.is_some() {
                     let text = self.pending_live_message.take().unwrap_or_default();
@@ -664,6 +714,10 @@ impl App {
                         self.input.set_text(&text);
                         self.submit();
                     }
+                }
+                if !self.queued_messages.is_empty() {
+                    let next = self.queued_messages.pop_front().unwrap();
+                    self.submit_text(next);
                 }
                 self.listen_after_speech();
                 if self.live {
@@ -784,12 +838,6 @@ impl App {
 
     /// Submit the current input.
     pub fn submit(&mut self) {
-        if self.busy {
-            self.transcript
-                .push(Line::Notice("still working on the previous message".into()));
-            return;
-        }
-
         let text = self.input.take();
         if text.is_empty() && self.pending_images.is_empty() {
             return;
@@ -798,6 +846,22 @@ impl App {
         // A slash command is handled locally.
         if text.starts_with('/') {
             self.run_command(&text);
+            if !text.is_empty() {
+                self.history.push(text.clone());
+            }
+            self.history_index = None;
+            self.history_draft = None;
+            return;
+        }
+
+        if self.busy {
+            // The message is kept and sent as soon as the turn ends, so
+            // nothing is lost by typing while the model is working.
+            if !text.is_empty() {
+                self.transcript.push(Line::User(text.clone()));
+                self.queued_messages.push_back(text.clone());
+                self.status = format!("queued ({} waiting)", self.queued_messages.len());
+            }
             self.history.push(text.clone());
             self.history_index = None;
             self.history_draft = None;
@@ -838,11 +902,12 @@ impl App {
         let event_tx = self.event_tx.clone();
 
         if let (Some(runner), Some(event_tx)) = (runner, event_tx) {
-            tokio::spawn(async move {
+            let handle = tokio::spawn(async move {
                 runner
                     .run_message(&session_id, Some(message), event_tx)
                     .await;
             });
+            self.busy_handle = Some(handle);
         }
     }
 
@@ -882,6 +947,50 @@ impl App {
             }
             "/quit" | "/exit" => {
                 self.should_quit = true;
+            }
+            "/interrupt" => {
+                self.interrupt();
+            }
+            "/thoughts" => {
+                self.show_thinking = !self.show_thinking;
+                self.transcript.push(Line::Notice(if self.show_thinking {
+                    "thinking shown".into()
+                } else {
+                    "thinking hidden".into()
+                }));
+            }
+            "/copy" => {
+                let text = self.transcript_text();
+                if copy_to_clipboard(&text) {
+                    self.transcript.push(Line::Notice("copied".into()));
+                } else {
+                    self.transcript
+                        .push(Line::Notice("no clipboard tool found".into()));
+                }
+            }
+            "/queue" => {
+                let arg = arg.trim();
+                if arg.is_empty() {
+                    self.transcript.push(Line::Notice("usage: /queue <text>".into()));
+                } else {
+                    self.queued_messages.push_back(arg.to_string());
+                    self.transcript
+                        .push(Line::User(arg.to_string()));
+                    self.status = format!("queued ({} waiting)", self.queued_messages.len());
+                }
+            }
+            "/delegate" | "/split" => {
+                let arg = arg.trim();
+                if arg.is_empty() {
+                    self.transcript
+                        .push(Line::Notice("usage: /delegate <task>".into()));
+                } else {
+                    let instruction = format!(
+                        "Split this task into independent parts and delegate each part to a sub-assistant, then combine the results: {}",
+                        arg
+                    );
+                    self.submit_text(instruction);
+                }
             }
             "/model" => {
                 if arg.is_empty() {
@@ -1156,6 +1265,10 @@ impl App {
     /// What the escape key does: a recording is thrown away, and anything
     /// else is a popup that closes.
     pub fn escape(&mut self) {
+        if self.busy {
+            self.interrupt();
+            return;
+        }
         if !self.command_matches().is_empty() {
             self.dismiss_command_preview();
             return;
@@ -1176,6 +1289,19 @@ impl App {
             return;
         }
         self.dismiss_popup();
+    }
+
+    /// Stop the turn that is running now.
+    pub fn interrupt(&mut self) {
+        if let Some(handle) = self.busy_handle.take() {
+            handle.abort();
+        }
+        self.busy = false;
+        self.busy_handle = None;
+        self.status = "ready".into();
+        self.action_started = None;
+        self.flush_turn();
+        self.transcript.push(Line::Notice("interrupted".into()));
     }
 
     /// Show or hide the help overlay.
@@ -2036,4 +2162,58 @@ fn plan_of(output: &crate::tool::ToolOutput) -> Vec<crate::tool::todo::TodoItem>
         .and_then(|metadata| metadata.get("todos"))
         .and_then(|todos| serde_json::from_value(todos.clone()).ok())
         .unwrap_or_default()
+}
+
+impl App {
+    /// The transcript as plain text, for copying.
+    pub fn transcript_text(&self) -> String {
+        let mut out = String::new();
+        for line in &self.transcript {
+            match line {
+                Line::User(t) => out.push_str(&format!("USER: {t}\n")),
+                Line::Assistant(t) => out.push_str(&format!("ASSISTANT: {t}\n")),
+                Line::Thinking(t) => out.push_str(&format!("THOUGHT: {t}\n")),
+                Line::Notice(t) => out.push_str(&format!("NOTICE: {t}\n")),
+                Line::Error(t) => out.push_str(&format!("ERROR: {t}\n")),
+                Line::Tool { name, result, .. } => {
+                    out.push_str(&format!("TOOL: {name}\n"));
+                    if let Some(r) = result {
+                        out.push_str(&r.content);
+                        out.push('\n');
+                    }
+                }
+                Line::Sub { label, note } => out.push_str(&format!("SUB: {label} - {note}\n")),
+                _ => {}
+            }
+        }
+        out
+    }
+}
+
+fn copy_to_clipboard(text: &str) -> bool {
+    use std::io::Write as _;
+    let candidates: &[(&str, &[&str])] = &[
+        ("wl-copy", &[]),
+        ("xclip", &["-selection", "clipboard"]),
+        ("xsel", &["--clipboard", "--input"]),
+        ("pbcopy", &[]),
+        ("clip", &[]),
+    ];
+    for (cmd, args) in candidates {
+        if let Ok(mut child) = std::process::Command::new(cmd)
+            .args(*args)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+        {
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(text.as_bytes());
+            }
+            if let Ok(status) = child.wait() {
+                if status.success() {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
