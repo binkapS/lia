@@ -2,7 +2,7 @@
 
 **A local-first AI assistant written in Rust.** One agent core, many ways to reach it: terminal, web, voice, and chat platforms. It runs on your machine, works inside your workspace, and asks before it acts.
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](docs/licence.md)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](docs/licence.md)
 ![Rust 2024](https://img.shields.io/badge/rust-2024-orange.svg)
 
 
@@ -72,4 +72,4 @@ Issues and pull requests are welcome. Start with [Development](docs/development.
 
 ## License
 
-MIT. See [Licence](docs/licence.md).
+AGPL-3.0. See [Licence](docs/licence.md).

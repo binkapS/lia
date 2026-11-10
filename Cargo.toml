@@ -3,7 +3,7 @@ name = "lia"
 version = "0.1.1"
 edition = "2024"
 description = "A local-first AI assistant: agent core, gateway daemon, and channel adapters"
-license = "MIT"
+license = "AGPL-3.0"
 
 [dependencies]
 # async runtime
