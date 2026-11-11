@@ -64,7 +64,7 @@ Copy [lia.example.toml](lia.example.toml) as a starting configuration, then foll
 
 **Running it:** [The sandbox](docs/the-sandbox.md) · [The gateway](docs/the-gateway.md) · [Channels](docs/channels.md) · [Security](docs/security.md) · [Troubleshooting](docs/troubleshooting.md)
 
-**Contributing:** [Development](docs/development.md) · [Layout](docs/layout.md) · [Roadmap](docs/roadmap.md) · [Skill authoring](docs/skill-authoring.md) · [Licence](docs/licence.md)
+**Contributing:** [Development](docs/development.md) · [Layout](docs/layout.md) · [Roadmap](docs/roadmap.md) · [Skill authoring](docs/skill-authoring.md) · [Licence](LICENSE.md)
 
 ## Contributing
 
