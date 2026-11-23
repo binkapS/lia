@@ -263,7 +263,7 @@ async fn a_slash_opens_a_filtered_command_preview() {
     assert!(all.contains("COMMANDS"), "the preview is not shown:\n{all}");
     assert!(all.contains("/help"), "the commands are not listed:\n{all}");
     assert!(all.contains("/image"));
-    assert!(all.contains("COMMANDS · 16"));
+    assert!(all.contains("COMMANDS · 22"));
 
     for c in "he".chars() {
         lia::tui::handle_key(
@@ -287,17 +287,56 @@ async fn a_slash_opens_a_filtered_command_preview() {
 }
 
 #[tokio::test]
+async fn the_command_palette_shows_grouped_commands() {
+    let mut app = App::new(lia::Config::default());
+    app.open_command_palette();
+
+    let (text, _) = screen(&mut app, 100, 30);
+    assert!(
+        text.contains("Search commands"),
+        "the palette title is missing:\n{text}"
+    );
+    assert!(text.contains("SUGGESTED"), "the groups are missing:\n{text}");
+    assert!(text.contains("/help"), "the commands are missing:\n{text}");
+    assert!(
+        text.contains("ctrl-p"),
+        "the key hint is missing:\n{text}"
+    );
+}
+
+#[test]
+fn the_empty_screen_shows_the_logo_and_a_sample_question() {
+    let mut app = App::new(lia::Config::default());
+    let (text, _) = screen(&mut app, 100, 30);
+
+    assert!(
+        text.contains("███████╗██║"),
+        "the mark is missing:\n{text}"
+    );
+    assert!(
+        text.contains("Ask anything"),
+        "the sample question is missing:\n{text}"
+    );
+    assert!(
+        text.contains("+ New session"),
+        "the new-session action is missing:\n{text}"
+    );
+}
+
+#[tokio::test]
 async fn the_command_preview_follows_a_long_selection() {
     let mut app = App::new(lia::Config::default());
     app.input.insert_char('/');
 
-    for _ in 0..15 {
+    // Walk to the last command; the window has to follow the highlight all
+    // the way, not stop part-way down the catalogue.
+    for _ in 0..lia::tui::commands::COMMANDS.len() - 1 {
         lia::tui::handle_key(&mut app, KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).await;
     }
     let (text, _) = screen(&mut app, 80, 24);
     assert!(
-        text.contains("/handsfree"),
-        "the selected command scrolled out of the window:\n{text}"
+        text.contains("/commands"),
+        "the selected last command scrolled out of the window:\n{text}"
     );
     assert!(
         text.contains("/quit"),

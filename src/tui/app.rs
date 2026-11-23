@@ -22,6 +22,69 @@ use super::theme::Theme;
 use super::wrap;
 use crate::voice::compose::SpeechComposer;
 
+/// Shorten a label for a narrow piece of chrome.
+fn truncate_label(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        return text.to_string();
+    }
+    let mut out: String = text.chars().take(width.saturating_sub(1)).collect();
+    out.push('…');
+    out
+}
+
+/// The directory and branch shown at the foot of the screen.
+///
+/// The branch is read straight from `.git/HEAD` so the interface never has
+/// to start a `git` process just to draw a line of text. A detached head is
+/// shown as its short hash; a directory outside a repository has no branch.
+fn workspace_label() -> String {
+    let dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let mut display = dir.to_string_lossy().to_string();
+    if let Some(home) = dirs::home_dir() {
+        let prefix = home.to_string_lossy().to_string();
+        if let Some(rest) = display.strip_prefix(&prefix) {
+            display = format!("~{rest}");
+        }
+    }
+
+    let branch = dir
+        .ancestors()
+        .find_map(|ancestor| {
+            let dot_git = ancestor.join(".git");
+            if dot_git.is_dir() {
+                std::fs::read_to_string(dot_git.join("HEAD")).ok()
+            } else if dot_git.is_file() {
+                // A worktree points at the real git directory from its
+                // .git file, so follow that before reading HEAD.
+                let pointer = std::fs::read_to_string(&dot_git).ok()?;
+                let gitdir = std::path::Path::new(pointer.strip_prefix("gitdir: ")?.trim());
+                let gitdir = if gitdir.is_absolute() {
+                    gitdir.to_path_buf()
+                } else {
+                    ancestor.join(gitdir)
+                };
+                std::fs::read_to_string(gitdir.join("HEAD")).ok()
+            } else {
+                None
+            }
+        })
+        .and_then(|head| {
+            let head = head.trim();
+            if let Some(branch) = head.strip_prefix("ref: refs/heads/") {
+                Some(branch.to_string())
+            } else if head.chars().all(|c| c.is_ascii_hexdigit()) {
+                Some(head.chars().take(7).collect())
+            } else {
+                None
+            }
+        });
+
+    match branch {
+        Some(branch) => format!("{display}:{branch}"),
+        None => display,
+    }
+}
+
 /// A line in the transcript.
 #[derive(Debug, Clone)]
 pub enum Line {
@@ -106,6 +169,8 @@ pub enum Popup {
     Sessions,
     /// The help overlay.
     Help,
+    /// The searchable command palette, opened with ctrl-p.
+    Commands,
 }
 
 /// What the voice is doing.
@@ -193,6 +258,14 @@ pub struct App {
     /// Set when escape closes the slash-command preview. It stays closed
     /// until the prompt changes again.
     pub command_dismissed: bool,
+    /// The text typed into the searchable command palette.
+    pub command_palette_query: String,
+    /// Which match in the command palette is highlighted.
+    pub command_palette_index: usize,
+    /// The directory and branch shown in the footer.
+    pub workspace_label: String,
+    /// How many MCP servers are configured, for the footer.
+    pub mcp_count: usize,
     /// Sessions available for switching.
     pub sessions: Vec<(String, String)>,
     /// Which session is highlighted in the sessions popup.
@@ -281,6 +354,14 @@ impl App {
             .then(|| Arc::new(Voice::new(config.voice.clone())));
         let voice_silence_ms = config.voice.silence_ms.unwrap_or(1500);
         let live_share = config.live.share;
+        // The footer reads like a coding agent's prompt: where we are and
+        // which branch we are on. It is worked out once, not on every frame.
+        let workspace_label = workspace_label();
+        let mcp_count = if config.mcp_enabled {
+            config.mcp_servers.len()
+        } else {
+            0
+        };
         App {
             config,
             transcript: vec![],
@@ -309,6 +390,10 @@ impl App {
             composer: SpeechComposer::new(),
             command_index: 0,
             command_dismissed: false,
+            command_palette_query: String::new(),
+            command_palette_index: 0,
+            workspace_label,
+            mcp_count,
             sessions: Vec::new(),
             session_index: 0,
             session_id,
@@ -806,6 +891,70 @@ impl App {
         self.command_dismissed = false;
     }
 
+    /// Open the searchable command palette.
+    pub fn open_command_palette(&mut self) {
+        self.command_palette_query.clear();
+        self.command_palette_index = 0;
+        self.popup = Popup::Commands;
+    }
+
+    /// The commands currently shown by the palette.
+    pub fn command_palette_matches(&self) -> Vec<&'static commands::CommandSpec> {
+        commands::search(&self.command_palette_query)
+    }
+
+    /// Move the highlight through the palette, wrapping at the ends.
+    pub fn move_command_palette_selection(&mut self, delta: isize) {
+        let count = self.command_palette_matches().len();
+        if count == 0 {
+            return;
+        }
+        self.command_palette_index =
+            (self.command_palette_index as isize + delta).rem_euclid(count as isize) as usize;
+    }
+
+    /// Type into the palette's search field.
+    pub fn insert_palette_char(&mut self, c: char) {
+        self.command_palette_query.push(c);
+        self.command_palette_index = 0;
+    }
+
+    /// Delete from the palette's search field.
+    pub fn palette_backspace(&mut self) {
+        self.command_palette_query.pop();
+        self.command_palette_index = 0;
+    }
+
+    /// Put the highlighted command in the prompt and run it.
+    pub fn run_command_palette_selection(&mut self) {
+        let matches = self.command_palette_matches();
+        let Some(command) = matches.get(self.command_palette_index).copied() else {
+            return;
+        };
+        self.popup = Popup::None;
+        self.command_palette_query.clear();
+        self.command_palette_index = 0;
+        self.input.set_text(command.name);
+        self.submit();
+    }
+
+    /// The name of the session in the header: the first thing said in it, or
+    /// a plain label for a session that has not started yet.
+    pub fn session_title(&self) -> String {
+        for line in &self.transcript {
+            if let Line::User(text) = line {
+                let one_line = text.split_whitespace().collect::<Vec<_>>().join(" ");
+                return truncate_label(&one_line, 40);
+            }
+        }
+        if let Some((_, title)) = self.sessions.iter().find(|(id, _)| *id == self.session_id) {
+            if !title.is_empty() && title != "New session" {
+                return truncate_label(title, 40);
+            }
+        }
+        "New session".to_string()
+    }
+
     /// What the assistant is doing, in a few words for the activity rail.
     ///
     /// A running tool is more useful than the model name, so it comes first;
@@ -920,6 +1069,9 @@ impl App {
         match command {
             "/help" => {
                 self.toggle_help();
+            }
+            "/commands" => {
+                self.open_command_palette();
             }
             "/image" => {
                 if arg.is_empty() {
@@ -1265,6 +1417,10 @@ impl App {
     /// What the escape key does: a recording is thrown away, and anything
     /// else is a popup that closes.
     pub fn escape(&mut self) {
+        if self.popup == Popup::Commands {
+            self.dismiss_popup();
+            return;
+        }
         if self.busy {
             self.interrupt();
             return;

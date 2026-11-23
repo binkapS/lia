@@ -101,6 +101,24 @@ pub async fn handle_key(app: &mut App, key: KeyEvent) -> bool {
         return false;
     }
 
+    // The command palette owns the keys while it is open: typing searches
+    // the catalogue, and nothing reaches the message box underneath.
+    if app.popup == Popup::Commands {
+        match key.code {
+            KeyCode::Esc => app.dismiss_popup(),
+            KeyCode::Up => app.move_command_palette_selection(-1),
+            KeyCode::Down => app.move_command_palette_selection(1),
+            KeyCode::Char('p') if ctrl => app.move_command_palette_selection(-1),
+            KeyCode::Char('n') if ctrl => app.move_command_palette_selection(1),
+            KeyCode::Tab => app.move_command_palette_selection(1),
+            KeyCode::Enter => app.run_command_palette_selection(),
+            KeyCode::Backspace => app.palette_backspace(),
+            KeyCode::Char(c) if !ctrl && !alt => app.insert_palette_char(c),
+            _ => {}
+        }
+        return false;
+    }
+
     // The session list has its own keys, so a stray character does not end
     // up in the input box while it is open.
     if app.popup == Popup::Sessions {
@@ -197,7 +215,9 @@ pub async fn handle_key(app: &mut App, key: KeyEvent) -> bool {
                 app.history_next();
             }
         }
-        KeyCode::Char('p') if ctrl => app.history_prev(),
+        // ctrl-p is the command palette, as in other coding agents. History
+        // stays on ctrl-up / ctrl-down, with ctrl-n kept as an alias.
+        KeyCode::Char('p') if ctrl => app.open_command_palette(),
         KeyCode::Char('n') if ctrl => app.history_next(),
         KeyCode::Char('u') if ctrl => {
             app.input.kill_to_line_start();
@@ -216,7 +236,9 @@ pub async fn handle_key(app: &mut App, key: KeyEvent) -> bool {
             let rows = app.page_rows();
             app.scroll_down(rows);
         }
+        KeyCode::Tab if shift => app.open_sessions(),
         KeyCode::Tab => app.complete(),
+        KeyCode::Char('n') if alt => app.create_session().await,
         KeyCode::F(1) => app.toggle_help(),
         // The microphone: press once to open it, again to close it.
         KeyCode::F(2) => app.toggle_listening(),
@@ -239,7 +261,10 @@ pub async fn handle_key(app: &mut App, key: KeyEvent) -> bool {
 /// The wheel scrolls the transcript, three rows a notch. A popup that is
 /// asking for an answer takes the wheel away, as it takes the keys.
 pub fn handle_mouse(app: &mut App, kind: MouseEventKind) {
-    if app.is_awaiting_approval() || app.popup == Popup::Sessions {
+    if app.is_awaiting_approval()
+        || app.popup == Popup::Sessions
+        || app.popup == Popup::Commands
+    {
         return;
     }
     match kind {

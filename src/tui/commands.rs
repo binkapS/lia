@@ -121,7 +121,56 @@ pub const COMMANDS: &[CommandSpec] = &[
         args: "",
         description: "leave the interface",
     },
+    CommandSpec {
+        name: "/commands",
+        args: "",
+        description: "search every command",
+    },
 ];
+
+/// The section a command belongs to in the searchable command palette.
+///
+/// The grouping lives here, next to the names, so the palette and the help
+/// overlay cannot disagree about what a command is for.
+pub fn group_of(name: &str) -> &'static str {
+    match name {
+        "/help" | "/sessions" | "/new" | "/model" | "/commands" => "Suggested",
+        "/clear" | "/interrupt" | "/queue" | "/delegate" | "/quit" => "Session",
+        "/thoughts" | "/copy" | "/tools" | "/skills" => "View",
+        "/listen" | "/dictate" | "/speak" | "/voice" | "/handsfree" | "/live" => "Voice",
+        _ => "Other",
+    }
+}
+
+/// A short key hint for the commands that also have a direct binding.
+pub fn key_hint_of(name: &str) -> &'static str {
+    match name {
+        "/help" => "F1",
+        "/sessions" => "⇧tab",
+        "/new" => "alt-n",
+        "/commands" => "ctrl-p",
+        "/listen" => "F2",
+        _ => "",
+    }
+}
+
+/// Every command whose name or description contains the query.
+///
+/// An empty query leaves the catalogue in its curated order, which is the
+/// order the palette shows before anybody types anything.
+pub fn search(query: &str) -> Vec<&'static CommandSpec> {
+    let needle = query.trim().to_lowercase();
+    if needle.is_empty() {
+        return COMMANDS.iter().collect();
+    }
+    COMMANDS
+        .iter()
+        .filter(|command| {
+            command.name.to_lowercase().contains(&needle)
+                || command.description.to_lowercase().contains(&needle)
+        })
+        .collect()
+}
 
 /// The commands that match a prompt that is part way through a name.
 ///

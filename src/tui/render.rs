@@ -23,6 +23,18 @@ use crate::tool::todo::TodoStatus;
 /// The tallest the message box may get.
 const MAX_INPUT_ROWS: u16 = 12;
 
+/// What the empty prompt says before anything is typed.
+const PLACEHOLDER: &str = "Ask anything…  \"Fix a TODO in the codebase\"";
+
+/// The mark on the empty transcript. Block letters, drawn in the middle.
+const LOGO: [&str; 5] = [
+    "█╗      ██╗  █████╗ ",
+    "██║     ██║ ██╔══██╗",
+    "██║     ██║ ███████║",
+    "██║     ██║ ██╔══██║",
+    "███████╗██║ ██║  ██║",
+];
+
 /// The marks that turn while the assistant is working.
 const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -146,6 +158,7 @@ pub fn draw<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<(),
             Popup::Approval(pending) => draw_approval(frame, area, pending, app.theme),
             Popup::Sessions => draw_sessions(frame, area, app),
             Popup::Help => draw_help(frame, area, app.theme),
+            Popup::Commands => draw_command_palette(frame, area, app),
             Popup::None => {}
         }
     })?;
@@ -210,54 +223,54 @@ fn live_colour(theme: Theme, tick: u64) -> Color {
     }
 }
 
-/// Draw the command bar: who is speaking, with what, and where.
+/// Draw the header: the session in view, its activity, and the way to start
+/// a new one. The layout follows the coding-agent habit of keeping the
+/// session name at the left and the "new session" action at the right.
 fn draw_header(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     let theme = app.theme;
-    let model = app.config.effective_model();
-    let provider = app.config.provider.as_str();
-    let narrow = area.width < 74;
+    let narrow = area.width < 78;
 
-    let mut left = vec![
-        Span::styled("◆ ", Style::default().fg(theme.accent)),
-        Span::styled(
-            "LIA",
-            Style::default()
-                .fg(theme.accent)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled("  /  AGENT CONSOLE", Style::default().fg(theme.muted)),
-    ];
-    if narrow {
-        left.truncate(2);
-    }
-
+    // A spinner only turns while there is work to report; otherwise a quiet
+    // dot says the interface is awake.
     let (mark, mark_colour) = if app.busy {
         (
-            ORBIT[(app.tick as usize) % ORBIT.len()],
+            SPINNER[(app.tick as usize) % SPINNER.len()],
             live_colour(theme, app.tick),
         )
     } else {
         ("●", theme.ok)
     };
 
-    let mut right = Vec::new();
+    let title_width = if narrow { 22 } else { 40 };
+    let mut left = vec![
+        Span::styled("◆ ", Style::default().fg(theme.accent)),
+        Span::styled(format!("{mark} "), Style::default().fg(mark_colour)),
+        Span::styled(
+            truncate(&app.session_title(), title_width),
+            Style::default()
+                .fg(theme.heading)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ];
+    if app.busy && !narrow {
+        left.push(Span::styled(
+            format!("  {}", truncate(&app.current_action(), 28)),
+            Style::default().fg(theme.muted),
+        ));
+    }
+
+    let mut right = vec![Span::styled(
+        "+ New session",
+        Style::default()
+            .fg(theme.accent)
+            .add_modifier(Modifier::BOLD),
+    )];
     if !narrow {
         right.push(Span::styled(
-            format!("{provider}/{model}"),
-            Style::default().fg(theme.heading),
+            format!("   {} ", app.config.effective_model()),
+            Style::default().fg(theme.muted),
         ));
-        right.push(Span::styled("   ", Style::default().fg(theme.muted)));
     }
-    right.push(Span::styled(
-        format!("{mark} "),
-        Style::default().fg(mark_colour),
-    ));
-    right.push(Span::styled(
-        truncate(&app.status.to_uppercase(), area.width as usize / 2),
-        Style::default()
-            .fg(if app.busy { theme.text } else { theme.muted })
-            .add_modifier(Modifier::BOLD),
-    ));
 
     frame.render_widget(
         Paragraph::new(Text::from(split_line(left, right, area.width)))
@@ -387,7 +400,15 @@ fn draw_rail(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         Style::default().fg(theme.muted),
     )));
     lines.push(RatLine::from(Span::styled(
-        "  f1     commands",
+        "  ctrl-p commands",
+        Style::default().fg(theme.muted),
+    )));
+    lines.push(RatLine::from(Span::styled(
+        "  ⇧tab   sessions",
+        Style::default().fg(theme.muted),
+    )));
+    lines.push(RatLine::from(Span::styled(
+        "  f1     help",
         Style::default().fg(theme.muted),
     )));
     lines.push(RatLine::from(Span::styled(
@@ -561,26 +582,48 @@ fn draw_transcript(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
         );
     }
 
-    // The welcome mat, when there is no conversation yet.
+    // The welcome mat, when there is no conversation yet. A block-letter
+    // mark and a sample question make the empty screen look like an
+    // invitation rather than a blank panel.
     if lines.is_empty() {
-        lines.push(RatLine::from(vec![
-            Span::styled("  ◆ ", Style::default().fg(theme.accent)),
-            Span::styled(
-                "LIA",
-                Style::default()
-                    .fg(theme.heading)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("  local-first agent", Style::default().fg(theme.muted)),
-        ]));
-        lines.push(RatLine::from(Span::styled(
-            "    type a message to begin",
-            Style::default().fg(theme.text),
-        )));
-        lines.push(RatLine::from(Span::styled(
-            "    /help for commands · F2 to speak",
-            Style::default().fg(theme.muted),
-        )));
+        if content.height >= 12 && width >= 34 {
+            let logo_width = LOGO.iter().map(|row| row.chars().count()).max().unwrap_or(0);
+            let pad = (width.saturating_sub(logo_width)) / 2;
+            for row in LOGO {
+                lines.push(RatLine::from(Span::styled(
+                    format!("{}{row}", " ".repeat(pad)),
+                    Style::default()
+                        .fg(theme.heading)
+                        .add_modifier(Modifier::BOLD),
+                )));
+            }
+            lines.push(RatLine::from(""));
+            let hint = truncate(PLACEHOLDER, width.saturating_sub(4));
+            lines.push(RatLine::from(vec![
+                Span::styled("  ┃  ", Style::default().fg(theme.accent)),
+                Span::styled(hint, Style::default().fg(theme.muted)),
+            ]));
+            lines.push(RatLine::from(""));
+            lines.push(RatLine::from(Span::styled(
+                "  ctrl+p commands · F1 help · /help for the full index",
+                Style::default().fg(theme.muted),
+            )));
+        } else {
+            lines.push(RatLine::from(vec![
+                Span::styled("  ◆ ", Style::default().fg(theme.accent)),
+                Span::styled(
+                    "LIA",
+                    Style::default()
+                        .fg(theme.heading)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled("  local-first agent", Style::default().fg(theme.muted)),
+            ]));
+            lines.push(RatLine::from(Span::styled(
+                "  type a message to begin",
+                Style::default().fg(theme.text),
+            )));
+        }
     }
 
     // Every row was wrapped to the width of the panel, so the height is
@@ -1004,6 +1047,12 @@ fn draw_input(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
     let spot = wrap::cursor_spot(&lines, app.input.cursor());
     let offset = wrap::scroll_offset(lines.len(), visible, spot.line);
 
+    // An empty prompt shows an example, the way a coding agent's input does.
+    // It is only paint: the buffer is still empty and the cursor stays at
+    // the first cell.
+    let show_placeholder = app.input.text().is_empty() && !app.busy;
+    let placeholder = truncate(PLACEHOLDER, inner);
+
     let mut rows: Vec<RatLine> = Vec::new();
     for (index, line) in lines.iter().enumerate() {
         if index < offset {
@@ -1019,10 +1068,12 @@ fn draw_input(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
         } else {
             Span::styled("  ", prompt_style)
         };
-        rows.push(RatLine::from(vec![
-            gutter,
-            Span::styled(line.text.clone(), Style::default().fg(theme.text)),
-        ]));
+        let (text, style) = if show_placeholder && index == 0 {
+            (placeholder.clone(), Style::default().fg(theme.muted))
+        } else {
+            (line.text.clone(), Style::default().fg(theme.text))
+        };
+        rows.push(RatLine::from(vec![gutter, Span::styled(text, style)]));
     }
 
     frame.render_widget(Paragraph::new(Text::from(rows)).block(block), area);
@@ -1042,6 +1093,18 @@ fn draw_footer(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     let theme = app.theme;
 
     let mut left: Vec<Span> = Vec::new();
+    left.push(Span::styled(
+        format!("{}  ", app.workspace_label),
+        Style::default()
+            .fg(theme.accent)
+            .add_modifier(Modifier::BOLD),
+    ));
+    if app.mcp_count > 0 {
+        left.push(Span::styled(
+            format!("⊙ {} MCP  ", app.mcp_count),
+            Style::default().fg(theme.muted),
+        ));
+    }
     if let Some(usage) = app.last_usage {
         left.push(Span::styled(
             format!("↑{} ↓{}  ", usage.input_tokens, usage.output_tokens),
@@ -1091,7 +1154,7 @@ fn draw_footer(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         return;
     }
 
-    let right = match &app.popup {
+    let mut right = match &app.popup {
         Popup::Approval(_) => vec![Span::styled(
             "y approve · n deny · a always",
             Style::default().fg(theme.warn),
@@ -1101,11 +1164,25 @@ fn draw_footer(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             Style::default().fg(theme.muted),
         )],
         Popup::Help => vec![Span::styled("esc close", Style::default().fg(theme.muted))],
+        Popup::Commands => vec![Span::styled(
+            "↑↓ select · enter run · esc close",
+            Style::default().fg(theme.muted),
+        )],
         Popup::None => vec![Span::styled(
-            "⏎ send · ctrl-j newline · F2 talk · /help",
+            if area.width >= 96 {
+                "ctrl+p commands · F1 help · F2 voice"
+            } else {
+                "ctrl+p commands · F1 help"
+            },
             Style::default().fg(theme.muted),
         )],
     };
+    if area.width >= 112 {
+        right.push(Span::styled(
+            format!("   v{}", env!("CARGO_PKG_VERSION")),
+            Style::default().fg(theme.muted),
+        ));
+    }
 
     frame.render_widget(
         Paragraph::new(Text::from(split_line(left, right, area.width)))
@@ -1257,6 +1334,138 @@ fn draw_sessions(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     );
 }
 
+/// The searchable command palette.
+///
+/// A search field at the top, grouped results below, a direct key hint at
+/// the right of each row, and a narrow window that follows the highlight.
+fn draw_command_palette(frame: &mut ratatui::Frame, area: Rect, app: &App) {
+    let theme = app.theme;
+    let popup = centered(area, 70, 82);
+    frame.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme.accent))
+        .style(Style::default().bg(theme.panel))
+        .title(Span::styled(
+            " Search commands ",
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .title_bottom(Span::styled(
+            " esc close ",
+            Style::default().fg(theme.muted),
+        ));
+    frame.render_widget(block.clone(), popup);
+    let inner = block.inner(popup);
+    let capacity = inner.height.saturating_sub(1) as usize;
+
+    // Group the matches the way the catalogue is organised, keeping the
+    // curated order inside each group.
+    let rank = |name: &str| match commands::group_of(name) {
+        "Suggested" => 0,
+        "Session" => 1,
+        "View" => 2,
+        "Voice" => 3,
+        _ => 4,
+    };
+    let mut matches = app.command_palette_matches();
+    matches.sort_by_key(|command| rank(command.name));
+
+    // Each entry is either a group heading or one command, stored as its
+    // index into `matches` so the highlight can be found after sorting.
+    let mut entries: Vec<(bool, usize)> = Vec::new();
+    let mut last_group = "";
+    for (index, command) in matches.iter().enumerate() {
+        let group = commands::group_of(command.name);
+        if group != last_group {
+            entries.push((true, index));
+            last_group = group;
+        }
+        entries.push((false, index));
+    }
+
+    let selected_row = entries
+        .iter()
+        .position(|(is_group, index)| !is_group && *index == app.command_palette_index)
+        .unwrap_or(0);
+    let first = if selected_row >= capacity {
+        selected_row + 1 - capacity
+    } else {
+        0
+    };
+
+    let width = inner.width as usize;
+    let mut lines: Vec<RatLine> = Vec::new();
+    lines.push(RatLine::from(vec![
+        Span::styled("▌ ", Style::default().fg(theme.accent)),
+        Span::styled(
+            app.command_palette_query.clone(),
+            Style::default().fg(theme.text),
+        ),
+    ]));
+
+    if matches.is_empty() {
+        lines.push(RatLine::from(Span::styled(
+            "  no matching commands",
+            Style::default().fg(theme.muted),
+        )));
+    }
+
+    for (is_group, index) in entries.iter().skip(first).take(capacity) {
+        if *is_group {
+            lines.push(RatLine::from(Span::styled(
+                format!("  {}", commands::group_of(matches[*index].name).to_uppercase()),
+                Style::default()
+                    .fg(theme.muted)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            continue;
+        }
+        let command = matches[*index];
+        let selected = *index == app.command_palette_index;
+        let hint = commands::key_hint_of(command.name);
+        let desc_width = width.saturating_sub(22 + hint.len() + 2).max(10);
+        let background = if selected {
+            Style::default().bg(theme.sel)
+        } else {
+            Style::default()
+        };
+        lines.push(RatLine::from(vec![
+            Span::styled(
+                if selected { "▸ " } else { "  " },
+                Style::default().fg(if selected { theme.accent } else { theme.muted }),
+            )
+            .patch_style(background),
+            Span::styled(
+                format!("{:<16}", command.name),
+                Style::default()
+                    .fg(if selected { theme.accent } else { theme.text })
+                    .add_modifier(if selected {
+                        Modifier::BOLD
+                    } else {
+                        Modifier::empty()
+                    }),
+            )
+            .patch_style(background),
+            Span::styled(
+                truncate(command.description, desc_width),
+                Style::default().fg(if selected { theme.text } else { theme.muted }),
+            )
+            .patch_style(background),
+            Span::styled(
+                format!("  {hint}"),
+                Style::default().fg(theme.heading),
+            )
+            .patch_style(background),
+        ]));
+    }
+
+    frame.render_widget(Paragraph::new(Text::from(lines)), inner);
+}
+
 /// Draw the help overlay.
 ///
 /// The commands and the keys sit side by side, so the whole map fits on an
@@ -1316,8 +1525,11 @@ fn draw_help(frame: &mut ratatui::Frame, area: Rect, theme: Theme) {
         RatLine::from(""),
         RatLine::from("ctrl-c     quit"),
         RatLine::from("⏎          send · ctrl-j newline"),
+        RatLine::from("ctrl-p     command palette"),
+        RatLine::from("ctrl-↑/↓   history"),
+        RatLine::from("⇧tab       sessions"),
+        RatLine::from("alt-n      new session"),
         RatLine::from("↑↓         lines, then history"),
-        RatLine::from("ctrl-p/n   history"),
         RatLine::from("ctrl-←/→   one word"),
         RatLine::from("home/end   line · ctrl: message"),
         RatLine::from("ctrl-u/k/w cut"),

@@ -115,19 +115,61 @@ async fn the_draft_survives_a_history_recall() {
 }
 
 #[tokio::test]
-async fn ctrl_p_and_ctrl_n_reach_the_history() {
+async fn ctrl_up_and_ctrl_down_reach_the_history() {
     let mut app = app();
     app.history.push("one".into());
     app.history.push("two".into());
 
-    press(&mut app, KeyCode::Char('p'), KeyModifiers::CONTROL).await;
+    press(&mut app, KeyCode::Up, KeyModifiers::CONTROL).await;
     assert_eq!(app.input.text(), "two");
 
-    press(&mut app, KeyCode::Char('p'), KeyModifiers::CONTROL).await;
+    press(&mut app, KeyCode::Up, KeyModifiers::CONTROL).await;
     assert_eq!(app.input.text(), "one");
 
-    press(&mut app, KeyCode::Char('n'), KeyModifiers::CONTROL).await;
+    press(&mut app, KeyCode::Down, KeyModifiers::CONTROL).await;
     assert_eq!(app.input.text(), "two");
+}
+
+#[tokio::test]
+async fn ctrl_p_opens_the_command_palette() {
+    let mut app = app();
+    press(&mut app, KeyCode::Char('p'), KeyModifiers::CONTROL).await;
+    assert_eq!(app.popup, lia::tui::app::Popup::Commands);
+}
+
+#[tokio::test]
+async fn the_palette_searches_and_runs_a_command() {
+    let mut app = app();
+    press(&mut app, KeyCode::Char('p'), KeyModifiers::CONTROL).await;
+
+    // Search narrows the catalogue and resets the highlight.
+    press(&mut app, KeyCode::Char('t'), KeyModifiers::NONE).await;
+    press(&mut app, KeyCode::Char('o'), KeyModifiers::NONE).await;
+    press(&mut app, KeyCode::Char('o'), KeyModifiers::NONE).await;
+    press(&mut app, KeyCode::Char('l'), KeyModifiers::NONE).await;
+    press(&mut app, KeyCode::Char('s'), KeyModifiers::NONE).await;
+    let matches = app.command_palette_matches();
+    assert_eq!(matches.len(), 1, "the search did not narrow the catalogue");
+    assert_eq!(matches[0].name, "/tools");
+
+    // Running it closes the palette and leaves the command on the prompt.
+    press(&mut app, KeyCode::Enter, KeyModifiers::NONE).await;
+    assert_eq!(app.popup, lia::tui::app::Popup::None);
+    assert!(app.transcript.iter().any(|line| matches!(
+        line,
+        lia::tui::app::Line::Notice(text) if text.starts_with("tools:")
+    )));
+}
+
+#[tokio::test]
+async fn escape_closes_the_palette_without_typing_into_the_prompt() {
+    let mut app = app();
+    press(&mut app, KeyCode::Char('p'), KeyModifiers::CONTROL).await;
+    press(&mut app, KeyCode::Char('x'), KeyModifiers::NONE).await;
+    press(&mut app, KeyCode::Esc, KeyModifiers::NONE).await;
+
+    assert_eq!(app.popup, lia::tui::app::Popup::None);
+    assert_eq!(app.input.text(), "");
 }
 
 #[tokio::test]
